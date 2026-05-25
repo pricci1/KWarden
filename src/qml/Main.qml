@@ -127,7 +127,7 @@ Kirigami.ApplicationWindow {
     }
 
     function totpClipboardValue(value) {
-        return (value || "").replaceAll(" ", "")
+        return String(value || "").split(" ").join("")
     }
 
     function copyValue(label, value) {

@@ -45,6 +45,8 @@ int quitAfterMs(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+    QGuiApplication::setDesktopFileName(QStringLiteral("org.kwarden.KWarden"));
+
     QGuiApplication app(argc, argv);
 
     KLocalizedString::setApplicationDomain("kwarden");

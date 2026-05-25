@@ -1,0 +1,23 @@
+app-id: org.kwarden.KWarden
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+command: kwarden
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+modules:
+  - name: kwarden
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    sources:
+      - type: dir
+        path: .
+        skip:
+          - .flatpak-builder
+          - build
+          - build-*
+          - repo

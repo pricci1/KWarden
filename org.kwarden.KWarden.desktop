@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=KWarden
+Comment=KDE native frontend for Bitwarden CLI
+Exec=kwarden
+Icon=org.kwarden.KWarden
+Terminal=false
+Categories=Utility;Qt;KDE;
+StartupNotify=true
+X-KDE-FormFactor=desktop

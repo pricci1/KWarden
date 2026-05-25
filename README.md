@@ -50,12 +50,21 @@ For a quick headless smoke run:
 distrobox enter kde-dev -- bash -lc 'cmake --build /var/home/otto/Projects/kwarden/build && QT_QPA_PLATFORM=offscreen /var/home/otto/Projects/kwarden/build/bin/kwarden --quit-after-ms 250'
 ```
 
+To build and smoke-run the Flatpak version using the KDE runtime:
+
+```sh
+flatpak-builder --force-clean --state-dir=/tmp/kwarden-flatpak-state /tmp/kwarden-flatpak-build org.kwarden.KWarden.yml
+flatpak-builder --run --env=QT_QPA_PLATFORM=offscreen /tmp/kwarden-flatpak-build org.kwarden.KWarden.yml kwarden --quit-after-ms 250
+```
+
 For manual visual checks, launch the app normally. If capturing screenshots on KDE Wayland, use a delayed active-window Spectacle capture and close the test window afterward.
 
 ## Project layout
 
 ```text
 CMakeLists.txt       Build definition for the Kirigami app
+org.kwarden.KWarden.yml
+                     Flatpak Builder manifest for the app
 src/main.cpp         Application bootstrap and clipboard bridge for QML
 src/qml/Main.qml     Kirigami UI, mock vault data, search, copy actions
 ```

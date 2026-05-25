@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.kwarden.KWarden</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>KWarden</name>
+  <summary>KDE native frontend for Bitwarden CLI</summary>
+  <description>
+    <p>KWarden is a Kirigami desktop application for viewing Bitwarden vault items. This early development build uses mocked Bitwarden CLI-shaped data while the real CLI provider is being developed.</p>
+  </description>
+  <launchable type="desktop-id">org.kwarden.KWarden.desktop</launchable>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-05-25" />
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>

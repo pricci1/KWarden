@@ -11,6 +11,8 @@ include(KDECompilerSettings NO_POLICY_SCOPE)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n Kirigami)
 
+set(KWARDEN_APP_ID org.kwarden.KWarden)
+
 if (COMMAND qt_policy)
     qt_policy(SET QTP0001 NEW)
     qt_policy(SET QTP0004 NEW)
@@ -40,3 +42,6 @@ target_link_libraries(kwarden PRIVATE
 )
 
 install(TARGETS kwarden ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+install(FILES ${KWARDEN_APP_ID}.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES ${KWARDEN_APP_ID}.metainfo.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
+install(FILES ${KWARDEN_APP_ID}.svg DESTINATION ${KDE_INSTALL_ICONDIR}/hicolor/scalable/apps)
