@@ -27,6 +27,10 @@ qt_add_qml_module(kwarden
     VERSION 1.0
     QML_FILES
         src/qml/Main.qml
+        src/qml/VaultListItemDelegate.qml
+        src/qml/VaultFieldDelegate.qml
+    IMPORTS
+        org.kde.kirigamiaddons.formcard
 )
 
 target_compile_features(kwarden PRIVATE cxx_std_20)

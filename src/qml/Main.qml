@@ -1,38 +1,35 @@
 import QtQuick
-import QtQuick.Controls as Controls
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.kirigamiaddons.formcard as FormCard
 
 Kirigami.ApplicationWindow {
     id: root
 
-    width: 980
-    height: 640
-    minimumWidth: 760
-    minimumHeight: 520
+    width: 1080
+    height: 720
+    minimumWidth: 820
+    minimumHeight: 560
     title: i18n("KWarden")
     visible: true
 
     property string searchText: ""
     property int selectedIndex: 0
     property string actionStatusText: ""
-    readonly property color selectionColor: Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                                   Kirigami.Theme.highlightColor.g,
-                                                   Kirigami.Theme.highlightColor.b,
-                                                   0.28)
-    readonly property color hoverColor: Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                               Kirigami.Theme.highlightColor.g,
-                                               Kirigami.Theme.highlightColor.b,
-                                               0.12)
 
     readonly property var allItems: vaultProvider.items
     readonly property var filteredItems: allItems.filter(function(item) {
-        var query = root.searchText.trim().toLowerCase()
+        const query = root.searchText.trim().toLowerCase()
         if (query.length === 0) {
             return true
         }
-
-        return [item.name, loginValue(item, "username"), item.notes].join(" ").toLowerCase().indexOf(query) !== -1
+        return [
+            item.name,
+            loginValue(item, "username"),
+            (item.login && item.login.uris && item.login.uris.length > 0) ? item.login.uris[0].uri : "",
+            item.notes
+        ].join(" ").toLowerCase().indexOf(query) !== -1
     })
     readonly property var selectedItem: filteredItems.length === 0 ? null : filteredItems[Math.min(selectedIndex, filteredItems.length - 1)]
 
@@ -40,16 +37,7 @@ Kirigami.ApplicationWindow {
         if (!item || !item.login) {
             return ""
         }
-
         return item.login[fieldName] || ""
-    }
-
-    function masked(value) {
-        if (!value || value.length === 0) {
-            return "—"
-        }
-
-        return "•".repeat(value.length)
     }
 
     function totpClipboardValue(value) {
@@ -61,12 +49,10 @@ Kirigami.ApplicationWindow {
             root.actionStatusText = i18n("No vault item selected")
             return
         }
-
         if (!value || value.length === 0) {
             root.actionStatusText = i18n("Selected item has no %1", label)
             return
         }
-
         clipboardBridge.copy(value)
         root.actionStatusText = i18n("Copied %1 for %2", label, root.selectedItem.name)
     }
@@ -76,7 +62,6 @@ Kirigami.ApplicationWindow {
             root.actionStatusText = i18n("No vault item selected")
             return
         }
-
         if (fieldName === "username") {
             copyValue(i18n("username"), root.loginValue(root.selectedItem, "username"))
         } else if (fieldName === "password") {
@@ -106,349 +91,516 @@ Kirigami.ApplicationWindow {
         onActivated: root.copyField("totp")
     }
 
-    pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
+    Shortcut {
+        sequence: "Ctrl+F"
+        onActivated: searchField.forceActiveFocus()
+    }
 
-    header: Controls.ToolBar {
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: Kirigami.Units.largeSpacing
-            anchors.rightMargin: Kirigami.Units.largeSpacing
+    pageStack.initialPage: Kirigami.Page {
+        id: mainPage
+
+        padding: 0
+        globalToolBarStyle: Kirigami.ApplicationHeaderStyle.ToolBar
+
+        titleDelegate: RowLayout {
             spacing: Kirigami.Units.largeSpacing
+            Layout.fillWidth: true
 
             Kirigami.Heading {
                 text: i18n("KWarden")
                 level: 2
+                Layout.alignment: Qt.AlignVCenter
             }
 
-            Controls.Label {
+            Kirigami.Separator {
+                Layout.fillHeight: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+                visible: vaultProvider.userEmail.length > 0
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 text: vaultProvider.userEmail.length > 0 ? vaultProvider.userEmail : i18n("Bitwarden CLI vault")
                 color: Kirigami.Theme.disabledTextColor
-                font.weight: Font.DemiBold
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
-
-            Controls.Label {
-                text: i18n("Ctrl+U Username   Ctrl+P Password   Ctrl+T TOTP")
-                color: Kirigami.Theme.disabledTextColor
-                font.weight: Font.DemiBold
-            }
-
-            Controls.Button {
-                text: i18n("Refresh")
-                enabled: !vaultProvider.busy && vaultProvider.state !== "pinLocked"
-                onClicked: root.refreshVault()
-            }
-
-            Controls.Button {
-                text: vaultProvider.pinSet ? i18n("Clear PIN") : i18n("Set PIN")
-                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
-                onClicked: vaultProvider.pinSet ? vaultProvider.clearPin() : setPinDialog.open()
-            }
-
-            Controls.Button {
-                text: i18n("Lock")
-                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
-                onClicked: vaultProvider.lock()
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
             }
         }
-    }
 
-    footer: Controls.Label {
-        text: root.actionStatusText.length > 0 ? root.actionStatusText : vaultProvider.statusText
-        leftPadding: Kirigami.Units.smallSpacing
-        rightPadding: Kirigami.Units.smallSpacing
-        topPadding: Kirigami.Units.smallSpacing / 2
-        bottomPadding: Kirigami.Units.smallSpacing / 2
-        elide: Text.ElideRight
-    }
+        actions: [
+            Kirigami.Action {
+                text: i18n("Refresh")
+                icon.name: "view-refresh-symbolic"
+                enabled: !vaultProvider.busy && vaultProvider.state !== "pinLocked"
+                onTriggered: root.refreshVault()
+                displayHint: Kirigami.DisplayHint.KeepVisible
+            },
+            Kirigami.Action {
+                text: vaultProvider.pinSet ? i18n("Clear PIN") : i18n("Set PIN")
+                icon.name: vaultProvider.pinSet ? "edit-clear-symbolic" : "lock-symbolic"
+                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
+                onTriggered: vaultProvider.pinSet ? vaultProvider.clearPin() : setPinDialog.open()
+                displayHint: Kirigami.DisplayHint.KeepVisible
+            },
+            Kirigami.Action {
+                text: i18n("Lock")
+                icon.name: "system-lock-screen-symbolic"
+                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
+                onTriggered: vaultProvider.lock()
+                displayHint: Kirigami.DisplayHint.KeepVisible
+            }
+        ]
 
-    Controls.SplitView {
-        anchors.fill: parent
-        orientation: Qt.Horizontal
+        QQC2.SplitView {
+            anchors.fill: parent
+            orientation: Qt.Horizontal
+            handle: Rectangle {
+                implicitWidth: 1
+                color: Kirigami.Theme.disabledTextColor
+                opacity: 0.4
+            }
 
-        Rectangle {
-            Controls.SplitView.preferredWidth: 300
-            Controls.SplitView.minimumWidth: 240
-            color: Kirigami.Theme.backgroundColor
+            QQC2.Pane {
+                id: sidebar
+                QQC2.SplitView.preferredWidth: Kirigami.Units.gridUnit * 18
+                QQC2.SplitView.minimumWidth: Kirigami.Units.gridUnit * 14
+                QQC2.SplitView.maximumWidth: Kirigami.Units.gridUnit * 28
+                padding: 0
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Theme.colorSet: Kirigami.Theme.Window
+                Kirigami.Theme.inherit: false
 
-                Controls.TextField {
-                    Layout.fillWidth: true
-                    placeholderText: i18n("Search vault…")
-                    text: root.searchText
-                    onTextChanged: {
-                        root.searchText = text
-                        root.selectedIndex = 0
-                    }
+                background: Rectangle {
+                    color: Kirigami.Theme.backgroundColor
                 }
 
-                Controls.Label {
-                    Layout.leftMargin: Kirigami.Units.smallSpacing
-                    Layout.topMargin: Kirigami.Units.smallSpacing
-                    text: i18n("Vault Items")
-                    color: Kirigami.Theme.disabledTextColor
-                    font.weight: Font.DemiBold
-                }
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
 
-                ListView {
-                    id: itemList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: root.filteredItems
-                    currentIndex: Math.min(root.selectedIndex, Math.max(0, count - 1))
-                    boundsBehavior: Flickable.StopAtBounds
-                    spacing: Kirigami.Units.smallSpacing / 2
-
-                    Controls.ScrollBar.vertical: Controls.ScrollBar {
-                        policy: Controls.ScrollBar.AsNeeded
-                    }
-
-                    delegate: Controls.ItemDelegate {
-                        required property var modelData
-                        required property int index
-
-                        width: ListView.view.width
-                        height: Kirigami.Units.gridUnit * 2
-                        leftPadding: Kirigami.Units.smallSpacing
-                        rightPadding: Kirigami.Units.smallSpacing
-                        topPadding: 0
-                        bottomPadding: 0
-                        highlighted: ListView.isCurrentItem
-                        onClicked: root.selectedIndex = index
-
-                        background: Rectangle {
-                            radius: Kirigami.Units.cornerRadius
-                            color: parent.highlighted ? root.selectionColor : (parent.hovered ? root.hoverColor : "transparent")
+                    Kirigami.SearchField {
+                        id: searchField
+                        Layout.fillWidth: true
+                        Layout.margins: Kirigami.Units.largeSpacing
+                        placeholderText: i18n("Search vault…")
+                        text: root.searchText
+                        onTextChanged: {
+                            root.searchText = text
+                            root.selectedIndex = 0
                         }
+                        focusSequence: "Ctrl+F"
+                    }
 
-                        contentItem: RowLayout {
-                            spacing: Kirigami.Units.smallSpacing
+                    Kirigami.ListSectionHeader {
+                        Layout.fillWidth: true
+                        text: i18np("%1 item", "%1 items", root.filteredItems.length)
+                    }
 
-                            Kirigami.Icon {
-                                Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
-                                Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
-                                source: "dialog-password"
-                                opacity: 0.8
+                    QQC2.ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+
+                        ListView {
+                            id: itemList
+                            model: root.filteredItems
+                            currentIndex: Math.min(root.selectedIndex, Math.max(0, count - 1))
+                            boundsBehavior: Flickable.StopAtBounds
+                            spacing: 0
+                            keyNavigationEnabled: true
+                            highlightFollowsCurrentItem: true
+                            highlightMoveDuration: Kirigami.Units.shortDuration
+
+                            delegate: VaultListItemDelegate {
+                                required property var modelData
+                                required property int index
+
+                                item: modelData
+                                isCurrent: ListView.isCurrentItem
+                                onClicked: root.selectedIndex = index
+                            }
+
+                            Kirigami.PlaceholderMessage {
+                                anchors.centerIn: parent
+                                width: parent.width - Kirigami.Units.gridUnit * 2
+                                visible: itemList.count === 0 && vaultProvider.state === "unlocked"
+                                icon.name: "edit-none-symbolic"
+                                text: root.searchText.length > 0 ? i18n("No matching items") : i18n("No vault items")
+                            }
+
+                            Kirigami.PlaceholderMessage {
+                                anchors.centerIn: parent
+                                width: parent.width - Kirigami.Units.gridUnit * 2
+                                visible: itemList.count === 0 && vaultProvider.state !== "unlocked"
+                                icon.name: vaultProvider.state === "missing" ? "dialog-error-symbolic" : "system-lock-screen-symbolic"
+                                text: vaultProvider.statusText
+                            }
+                        }
+                    }
+                }
+            }
+
+            QQC2.ScrollView {
+                QQC2.SplitView.fillWidth: true
+                contentWidth: availableWidth
+                clip: true
+
+                ColumnLayout {
+                    width: parent.width
+                    spacing: Kirigami.Units.largeSpacing
+
+                    // Detail header — banner-like
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Kirigami.Units.gridUnit
+                        Layout.leftMargin: Kirigami.Units.gridUnit
+                        Layout.rightMargin: Kirigami.Units.gridUnit
+                        Layout.bottomMargin: 0
+                        visible: root.selectedItem !== null
+                        implicitHeight: headerRow.implicitHeight
+
+                        RowLayout {
+                            id: headerRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            spacing: Kirigami.Units.largeSpacing
+
+                            Rectangle {
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+                                radius: Kirigami.Units.cornerRadius
+                                color: Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                               Kirigami.Theme.highlightColor.g,
+                                               Kirigami.Theme.highlightColor.b,
+                                               0.18)
+
+                                Kirigami.Icon {
+                                    anchors.centerIn: parent
+                                    width: Kirigami.Units.iconSizes.large
+                                    height: Kirigami.Units.iconSizes.large
+                                    source: {
+                                        if (!root.selectedItem) return ""
+                                        switch (root.selectedItem.type) {
+                                        case 1: return "internet-services-symbolic"
+                                        case 2: return "view-pim-notes-symbolic"
+                                        case 3: return "credit-card-symbolic"
+                                        case 4: return "user-identity-symbolic"
+                                        default: return "dialog-password-symbolic"
+                                        }
+                                    }
+                                    color: Kirigami.Theme.highlightColor
+                                    isMask: true
+                                }
                             }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 0
+                                spacing: Kirigami.Units.smallSpacing / 2
 
-                                Controls.Label {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: modelData.name
-                                    elide: Text.ElideRight
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    Kirigami.Heading {
+                                        Layout.fillWidth: true
+                                        text: root.selectedItem ? root.selectedItem.name : ""
+                                        level: 1
+                                        wrapMode: Text.Wrap
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 2
+                                    }
+
+                                    Kirigami.Icon {
+                                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                                        source: "starred-symbolic"
+                                        visible: root.selectedItem && root.selectedItem.favorite
+                                        color: Kirigami.Theme.neutralTextColor
+                                        isMask: true
+
+                                        QQC2.ToolTip.visible: hovered
+                                        QQC2.ToolTip.text: i18n("Favorite")
+
+                                        HoverHandler {
+                                            id: hoverHandler
+                                        }
+                                        property bool hovered: hoverHandler.hovered
+                                    }
                                 }
 
-                                Controls.Label {
+                                QQC2.Label {
                                     Layout.fillWidth: true
-                                    text: root.loginValue(modelData, "username")
+                                    text: {
+                                        if (!root.selectedItem) return ""
+                                        const it = root.selectedItem
+                                        if (it.login && it.login.uris && it.login.uris.length > 0 && it.login.uris[0].uri) {
+                                            return it.login.uris[0].uri
+                                        }
+                                        switch (it.type) {
+                                        case 1: return i18n("Login")
+                                        case 2: return i18n("Secure Note")
+                                        case 3: return i18n("Card")
+                                        case 4: return i18n("Identity")
+                                        default: return ""
+                                        }
+                                    }
                                     color: Kirigami.Theme.disabledTextColor
                                     elide: Text.ElideRight
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    textFormat: Text.PlainText
                                 }
                             }
-
-                            Controls.Label {
-                                text: "★"
-                                visible: modelData.favorite
-                                color: Kirigami.Theme.neutralTextColor
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            }
                         }
                     }
 
-                    Kirigami.PlaceholderMessage {
-                        anchors.centerIn: parent
-                        visible: itemList.count === 0
-                        text: vaultProvider.state === "unlocked" ? i18n("No matching vault items") : vaultProvider.statusText
-                    }
-                }
-            }
-        }
-
-        Kirigami.Separator {}
-
-        Kirigami.ScrollablePage {
-            Controls.SplitView.fillWidth: true
-            padding: Kirigami.Units.gridUnit
-            background: Rectangle {
-                color: Kirigami.Theme.backgroundColor
-            }
-
-            ColumnLayout {
-                width: parent.width
-                spacing: Kirigami.Units.smallSpacing
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Kirigami.Heading {
+                    // Credentials card
+                    FormCard.FormHeader {
                         Layout.fillWidth: true
-                        text: root.selectedItem ? root.selectedItem.name : i18n("No vault item selected")
-                        level: 2
-                        wrapMode: Text.Wrap
+                        title: i18n("Credentials")
+                        visible: root.selectedItem !== null && root.selectedItem.type === 1
                     }
 
-                    Controls.Label {
-                        text: i18n("Favorite")
-                        visible: root.selectedItem && root.selectedItem.favorite
-                        color: Kirigami.Theme.neutralTextColor
-                        font.weight: Font.DemiBold
-                    }
-                }
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: root.selectedItem !== null && root.selectedItem.type === 1
 
-                Controls.Label {
-                    Layout.fillWidth: true
-                    Layout.bottomMargin: Kirigami.Units.smallSpacing
-                    text: i18n("Use the buttons or keyboard shortcuts to copy fields from this item.")
-                    color: Kirigami.Theme.disabledTextColor
-                    font.weight: Font.DemiBold
-                    visible: root.selectedItem !== null
-                    wrapMode: Text.Wrap
-                }
-
-                FieldCard {
-                    title: i18n("Username")
-                    value: root.selectedItem ? root.loginValue(root.selectedItem, "username") : ""
-                    copyValue: value
-                    visible: root.selectedItem !== null
-                }
-
-                FieldCard {
-                    title: i18n("Password")
-                    value: root.selectedItem ? masked(root.loginValue(root.selectedItem, "password")) : ""
-                    copyValue: root.selectedItem ? root.loginValue(root.selectedItem, "password") : ""
-                    visible: root.selectedItem !== null
-                }
-
-                FieldCard {
-                    title: i18n("TOTP")
-                    value: root.selectedItem ? (root.loginValue(root.selectedItem, "totp") || "—") : ""
-                    copyValue: root.selectedItem ? totpClipboardValue(root.loginValue(root.selectedItem, "totp")) : ""
-                    visible: root.selectedItem !== null
-                }
-
-                Repeater {
-                    model: root.selectedItem && root.selectedItem.fields ? root.selectedItem.fields : []
-
-                    FieldCard {
-                        required property var modelData
-
-                        title: modelData.name
-                        value: modelData.type === 1 ? masked(modelData.value) : modelData.value
-                        copyValue: modelData.value
-                    }
-                }
-
-                Kirigami.AbstractCard {
-                    Layout.fillWidth: true
-                    visible: root.selectedItem !== null
-
-                    contentItem: ColumnLayout {
-                        spacing: Kirigami.Units.smallSpacing
-
-                        Controls.Label {
-                            text: i18n("Notes")
-                            font.weight: Font.Bold
+                        VaultFieldDelegate {
+                            label: i18n("Username")
+                            value: root.selectedItem ? root.loginValue(root.selectedItem, "username") : ""
+                            iconName: "user-symbolic"
+                            onCopyRequested: (l, v) => root.copyValue(l, v)
                         }
 
-                        Controls.Label {
-                            Layout.fillWidth: true
-                            text: root.selectedItem && root.selectedItem.notes && root.selectedItem.notes.length > 0 ? root.selectedItem.notes : "—"
-                            wrapMode: Text.Wrap
+                        FormCard.FormDelegateSeparator {}
+
+                        VaultFieldDelegate {
+                            label: i18n("Password")
+                            value: root.selectedItem ? root.loginValue(root.selectedItem, "password") : ""
+                            iconName: "password-show-on-symbolic"
+                            sensitive: true
+                            monospace: true
+                            onCopyRequested: (l, v) => root.copyValue(l, v)
+                        }
+
+                        FormCard.FormDelegateSeparator {
+                            visible: !!(root.selectedItem && root.loginValue(root.selectedItem, "totp").length > 0)
+                        }
+
+                        VaultFieldDelegate {
+                            label: i18n("TOTP")
+                            value: root.selectedItem ? root.loginValue(root.selectedItem, "totp") : ""
+                            iconName: "chronometer-symbolic"
+                            monospace: true
+                            visible: !!(root.selectedItem && root.loginValue(root.selectedItem, "totp").length > 0)
+                            copyValue: root.selectedItem ? root.totpClipboardValue(root.loginValue(root.selectedItem, "totp")) : ""
+                            onCopyRequested: (l, v) => root.copyValue(l, v)
                         }
                     }
-                }
 
-                Kirigami.PlaceholderMessage {
-                    Layout.fillWidth: true
-                    visible: root.selectedItem === null
-                    text: vaultProvider.statusText
-                    helpfulAction: Kirigami.Action {
-                        text: vaultProvider.state === "pinLocked" ? i18n("Unlock with PIN") : (vaultProvider.state === "locked" ? i18n("Unlock") : i18n("Refresh"))
-                        enabled: !vaultProvider.busy && vaultProvider.state !== "unlocked"
-                        onTriggered: {
-                            if (vaultProvider.state === "pinLocked") {
-                                pinUnlockDialog.open()
-                            } else if (vaultProvider.state === "locked") {
-                                unlockDialog.open()
-                            } else {
-                                root.refreshVault()
+                    // URIs card
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18np("Website", "Websites", uriRepeater.count)
+                        visible: uriRepeater.count > 0
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: uriRepeater.count > 0
+
+                        Repeater {
+                            id: uriRepeater
+                            model: root.selectedItem && root.selectedItem.login && root.selectedItem.login.uris
+                                   ? root.selectedItem.login.uris : []
+
+                            VaultFieldDelegate {
+                                required property var modelData
+                                required property int index
+
+                                label: i18nc("Website URL label", "URL %1", index + 1)
+                                value: modelData.uri || ""
+                                iconName: "globe-symbolic"
+                                onCopyRequested: (l, v) => root.copyValue(l, v)
                             }
                         }
                     }
-                }
 
-                Item {
-                    Layout.fillHeight: true
+                    // Custom fields card
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Custom Fields")
+                        visible: customFieldsRepeater.count > 0
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: customFieldsRepeater.count > 0
+
+                        Repeater {
+                            id: customFieldsRepeater
+                            model: root.selectedItem && root.selectedItem.fields ? root.selectedItem.fields : []
+
+                            VaultFieldDelegate {
+                                required property var modelData
+                                required property int index
+
+                                label: modelData.name || i18n("Field %1", index + 1)
+                                value: modelData.value || ""
+                                sensitive: modelData.type === 1
+                                monospace: modelData.type === 1
+                                iconName: modelData.type === 1 ? "password-show-on-symbolic" : "edit-symbolic"
+                                onCopyRequested: (l, v) => root.copyValue(l, v)
+                            }
+                        }
+                    }
+
+                    // Notes card
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Notes")
+                        visible: !!(root.selectedItem && root.selectedItem.notes && root.selectedItem.notes.length > 0)
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: !!(root.selectedItem && root.selectedItem.notes && root.selectedItem.notes.length > 0)
+
+                        FormCard.AbstractFormDelegate {
+                            Layout.fillWidth: true
+                            background: null
+                            focusPolicy: Qt.NoFocus
+
+                            contentItem: QQC2.TextArea {
+                                text: root.selectedItem && root.selectedItem.notes ? root.selectedItem.notes : ""
+                                readOnly: true
+                                wrapMode: TextEdit.Wrap
+                                selectByMouse: true
+                                background: null
+                            }
+                        }
+                    }
+
+                    // Placeholder when nothing selected
+                    Kirigami.PlaceholderMessage {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignCenter
+                        Layout.topMargin: Kirigami.Units.gridUnit * 4
+                        visible: root.selectedItem === null
+                        icon.name: {
+                            switch (vaultProvider.state) {
+                            case "locked": return "system-lock-screen-symbolic"
+                            case "pinLocked": return "system-lock-screen-symbolic"
+                            case "unauthenticated": return "dialog-warning-symbolic"
+                            case "missing": return "dialog-error-symbolic"
+                            case "error": return "dialog-error-symbolic"
+                            case "unlocked": return "edit-none-symbolic"
+                            default: return "view-refresh-symbolic"
+                            }
+                        }
+                        text: vaultProvider.state === "unlocked" ? i18n("Select a vault item") : vaultProvider.statusText
+                        explanation: vaultProvider.state === "unlocked"
+                                     ? i18n("Use the list on the left to view and copy credentials.")
+                                     : ""
+
+                        helpfulAction: Kirigami.Action {
+                            text: vaultProvider.state === "pinLocked" ? i18n("Unlock with PIN")
+                                  : (vaultProvider.state === "locked" ? i18n("Unlock vault")
+                                  : i18n("Refresh"))
+                            icon.name: vaultProvider.state === "pinLocked" || vaultProvider.state === "locked"
+                                       ? "object-unlocked-symbolic" : "view-refresh-symbolic"
+                            enabled: !vaultProvider.busy && vaultProvider.state !== "unlocked"
+                            onTriggered: {
+                                if (vaultProvider.state === "pinLocked") {
+                                    pinUnlockDialog.open()
+                                } else if (vaultProvider.state === "locked") {
+                                    unlockDialog.open()
+                                } else {
+                                    root.refreshVault()
+                                }
+                            }
+                        }
+                    }
+
+                    Item {
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: Kirigami.Units.gridUnit
+                    }
                 }
             }
         }
-    }
 
-    component FieldCard: Rectangle {
-        property string title
-        property string value
-        property string copyValue
+        footer: QQC2.ToolBar {
+            position: QQC2.ToolBar.Footer
 
-        Layout.fillWidth: true
-        implicitHeight: fieldRow.implicitHeight + Kirigami.Units.largeSpacing
-        color: "transparent"
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Kirigami.Units.largeSpacing
+                anchors.rightMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.largeSpacing
 
-        RowLayout {
-            id: fieldRow
-            anchors.fill: parent
-            anchors.leftMargin: Kirigami.Units.smallSpacing
-            anchors.rightMargin: Kirigami.Units.smallSpacing
-            spacing: Kirigami.Units.largeSpacing
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                Controls.Label {
-                    text: title
-                    font.weight: Font.Bold
+                Kirigami.Icon {
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    source: {
+                        switch (vaultProvider.state) {
+                        case "unlocked": return "object-unlocked-symbolic"
+                        case "locked": return "system-lock-screen-symbolic"
+                        case "pinLocked": return "system-lock-screen-symbolic"
+                        case "unauthenticated": return "dialog-warning-symbolic"
+                        case "missing": return "dialog-error-symbolic"
+                        case "error": return "dialog-error-symbolic"
+                        default: return "view-refresh-symbolic"
+                        }
+                    }
+                    color: {
+                        switch (vaultProvider.state) {
+                        case "unlocked": return Kirigami.Theme.positiveTextColor
+                        case "missing":
+                        case "error": return Kirigami.Theme.negativeTextColor
+                        case "locked":
+                        case "pinLocked":
+                        case "unauthenticated": return Kirigami.Theme.neutralTextColor
+                        default: return Kirigami.Theme.disabledTextColor
+                        }
+                    }
+                    isMask: true
                 }
 
-                Controls.Label {
+                QQC2.Label {
                     Layout.fillWidth: true
-                    text: value && value.length > 0 ? value : "—"
+                    text: root.actionStatusText.length > 0 ? root.actionStatusText : vaultProvider.statusText
                     elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                }
+
+                QQC2.BusyIndicator {
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    running: vaultProvider.busy
+                    visible: vaultProvider.busy
+                }
+
+                QQC2.Label {
+                    text: i18n("Ctrl+U  ·  Ctrl+P  ·  Ctrl+T")
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                    textFormat: Text.PlainText
+                    visible: vaultProvider.state === "unlocked"
                 }
             }
-
-            Controls.Button {
-                text: i18n("Copy")
-                enabled: copyValue.length > 0
-                onClicked: root.copyValue(title, copyValue)
-            }
-        }
-
-        Kirigami.Separator {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
         }
     }
 
-    Controls.Dialog {
+    // Dialogs ---------------------------------------------------------------
+
+    Kirigami.PromptDialog {
         id: unlockDialog
         title: i18n("Unlock Bitwarden Vault")
-        modal: true
-        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
-        closePolicy: Controls.Popup.CloseOnEscape
-        anchors.centerIn: parent
+        subtitle: i18n("Enter your Bitwarden master password. The resulting session key is held in memory only; if PIN unlock is enabled, Lock keeps only an in-memory PIN-wrapped copy.")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+        preferredWidth: Kirigami.Units.gridUnit * 26
 
         onOpened: masterPasswordField.forceActiveFocus()
         onAccepted: {
@@ -458,34 +610,36 @@ Kirigami.ApplicationWindow {
         }
         onRejected: masterPasswordField.text = ""
 
-        ColumnLayout {
-            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 24)
-            spacing: Kirigami.Units.smallSpacing
-
-            Controls.Label {
-                Layout.fillWidth: true
-                text: i18n("KWarden sends this password to ‘bw unlock --raw’ over stdin. The resulting session key is kept in memory only. If PIN unlock is enabled, Lock keeps only an in-memory PIN-wrapped copy of that session key.")
-                wrapMode: Text.Wrap
-            }
-
-            Controls.TextField {
-                id: masterPasswordField
-                Layout.fillWidth: true
-                placeholderText: i18n("Master password")
-                echoMode: TextInput.Password
-                enabled: !vaultProvider.busy
-                onAccepted: unlockDialog.accept()
-            }
+        QQC2.TextField {
+            id: masterPasswordField
+            Layout.fillWidth: true
+            placeholderText: i18n("Master password")
+            echoMode: TextInput.Password
+            enabled: !vaultProvider.busy
+            onAccepted: unlockDialog.accept()
         }
     }
 
-    Controls.Dialog {
+    Kirigami.PromptDialog {
         id: pinUnlockDialog
         title: i18n("Unlock with PIN")
-        modal: true
-        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
-        closePolicy: Controls.Popup.CloseOnEscape
-        anchors.centerIn: parent
+        subtitle: i18n("Unlocks KWarden using the in-memory PIN-wrapped BW_SESSION. Available only until KWarden quits.")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+        preferredWidth: Kirigami.Units.gridUnit * 22
+
+        customFooterActions: [
+            Kirigami.Action {
+                text: i18n("Use master password")
+                icon.name: "dialog-password-symbolic"
+                enabled: !vaultProvider.busy
+                onTriggered: {
+                    pinUnlockDialog.close()
+                    pinUnlockField.text = ""
+                    unlockDialog.open()
+                }
+            }
+        ]
 
         onOpened: pinUnlockField.forceActiveFocus()
         onAccepted: {
@@ -495,45 +649,24 @@ Kirigami.ApplicationWindow {
         }
         onRejected: pinUnlockField.text = ""
 
-        ColumnLayout {
-            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 20)
-            spacing: Kirigami.Units.smallSpacing
-
-            Controls.Label {
-                Layout.fillWidth: true
-                text: i18n("This unlocks KWarden using the in-memory PIN-wrapped BW_SESSION. It is available only until KWarden quits.")
-                wrapMode: Text.Wrap
-            }
-
-            Controls.TextField {
-                id: pinUnlockField
-                Layout.fillWidth: true
-                placeholderText: i18n("PIN")
-                echoMode: TextInput.Password
-                enabled: !vaultProvider.busy
-                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
-                onAccepted: pinUnlockDialog.accept()
-            }
-
-            Controls.Button {
-                text: i18n("Use master password instead")
-                enabled: !vaultProvider.busy
-                onClicked: {
-                    pinUnlockDialog.close()
-                    pinUnlockField.text = ""
-                    unlockDialog.open()
-                }
-            }
+        QQC2.TextField {
+            id: pinUnlockField
+            Layout.fillWidth: true
+            placeholderText: i18n("PIN")
+            echoMode: TextInput.Password
+            enabled: !vaultProvider.busy
+            inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+            onAccepted: pinUnlockDialog.accept()
         }
     }
 
-    Controls.Dialog {
+    Kirigami.PromptDialog {
         id: setPinDialog
         title: i18n("Set PIN")
-        modal: true
-        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
-        closePolicy: Controls.Popup.CloseOnEscape
-        anchors.centerIn: parent
+        subtitle: i18n("The PIN is ephemeral: nothing is written to disk, and PIN unlock disappears when KWarden quits. Lock keeps only a PIN-wrapped BW_SESSION in memory.")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+        preferredWidth: Kirigami.Units.gridUnit * 24
 
         onOpened: newPinField.forceActiveFocus()
         onAccepted: {
@@ -554,34 +687,25 @@ Kirigami.ApplicationWindow {
         }
 
         ColumnLayout {
-            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 22)
             spacing: Kirigami.Units.smallSpacing
 
-            Controls.Label {
-                Layout.fillWidth: true
-                text: i18n("The PIN is ephemeral: nothing is written to disk, and PIN unlock disappears when KWarden quits. Lock will keep only a PIN-wrapped BW_SESSION in memory.")
-                wrapMode: Text.Wrap
-            }
-
-            Controls.TextField {
+            QQC2.TextField {
                 id: newPinField
                 Layout.fillWidth: true
                 placeholderText: i18n("PIN")
                 echoMode: TextInput.Password
                 enabled: !vaultProvider.busy
                 inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
-                onTextChanged: setPinDialog.standardButton(Controls.Dialog.Ok).enabled = text.length >= 4 && text === confirmPinField.text
                 onAccepted: setPinDialog.accept()
             }
 
-            Controls.TextField {
+            QQC2.TextField {
                 id: confirmPinField
                 Layout.fillWidth: true
                 placeholderText: i18n("Confirm PIN")
                 echoMode: TextInput.Password
                 enabled: !vaultProvider.busy
                 inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
-                onTextChanged: setPinDialog.standardButton(Controls.Dialog.Ok).enabled = text.length >= 4 && text === newPinField.text
                 onAccepted: setPinDialog.accept()
             }
         }
