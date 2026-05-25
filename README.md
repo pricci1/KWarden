@@ -17,9 +17,10 @@ KWarden expects `bw` to be installed and available in `PATH`. Login is still del
 
 - The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.
 - The returned `BW_SESSION` value is kept only in KWarden process memory.
-- KWarden does not write the master password or session key to KDE Wallet, settings, logs, or disk.
-- Locking the vault runs `bw lock`, clears KWarden's in-memory session key, and removes loaded items from the UI.
-- Quitting the app drops KWarden's in-memory session key. Future KDE Wallet integration can be considered for user-approved session storage, but it is intentionally not used as an automatic key store yet.
+- Optional PIN unlock is ephemeral. It wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits.
+- When PIN unlock is enabled, Lock is a KWarden-local soft lock: it clears loaded items and the active session, but keeps the in-memory PIN-wrapped session so the PIN can unlock again. Without PIN unlock, Lock runs `bw lock`.
+- KWarden does not write the master password, PIN, or session key to KDE Wallet, settings, logs, or disk.
+- Quitting the app drops KWarden's in-memory session key and any PIN-wrapped session. Persistent PIN unlock is intentionally not implemented.
 
 ## Features
 
@@ -27,7 +28,7 @@ KWarden expects `bw` to be installed and available in `PATH`. Login is still del
 - Searchable vault item list
 - Detail pane for username, password, TOTP, custom fields, and notes
 - Clipboard copy buttons for secret values
-- Refresh, unlock, and lock controls for `bw` vault state
+- Refresh, unlock, lock, and ephemeral PIN controls for `bw` vault state
 - Keyboard shortcuts:
   - `Ctrl+U`: copy username
   - `Ctrl+P`: copy password
@@ -78,5 +79,4 @@ src/qml/Main.qml     Kirigami UI, search, unlock/lock state, copy actions
 
 ## Next steps
 
-- Consider optional KDE Wallet integration for explicitly user-approved session persistence.
 - Add focused tests for parsing `bw` JSON responses and copy behavior.

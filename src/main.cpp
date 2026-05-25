@@ -3,11 +3,13 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMessageAuthenticationCode>
 #include <QObject>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QRandomGenerator>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QVariantList>
@@ -16,6 +18,7 @@
 #include <KLocalizedContext>
 #include <KLocalizedString>
 
+#include <algorithm>
 #include <functional>
 
 class ClipboardBridge : public QObject
@@ -42,6 +45,7 @@ class BwCliProvider : public QObject
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QString userEmail READ userEmail NOTIFY userEmailChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(bool pinSet READ pinSet NOTIFY pinSetChanged)
 
 public:
     explicit BwCliProvider(QObject *parent = nullptr)
@@ -74,9 +78,19 @@ public:
         return m_busy;
     }
 
+    bool pinSet() const
+    {
+        return !m_pinSalt.isEmpty() && !m_wrappedSession.isEmpty();
+    }
+
     Q_INVOKABLE void refresh()
     {
         if (m_busy) {
+            return;
+        }
+
+        if (m_state == QStringLiteral("pinLocked")) {
+            setStatusText(i18n("KWarden is locked. Unlock with your PIN or master password."));
             return;
         }
 
@@ -138,8 +152,67 @@ public:
             m_session = QString::fromUtf8(stdoutData).trimmed();
             setState(QStringLiteral("unlocked"));
             setStatusText(i18n("Vault unlocked for this KWarden session"));
+            if (pinSet()) {
+                clearPinState();
+                setStatusText(i18n("Vault unlocked. Set a new PIN if you want PIN lock for this session."));
+            }
             loadItems();
         });
+    }
+
+    Q_INVOKABLE void unlockWithPin(const QString &pin)
+    {
+        if (m_busy || pin.isEmpty() || !pinSet()) {
+            return;
+        }
+
+        const QByteArray session = unwrapSession(pin);
+        if (session.isEmpty()) {
+            ++m_invalidPinAttempts;
+            if (m_invalidPinAttempts >= 5) {
+                clearPinState();
+                clearSession();
+                setItems({});
+                setState(QStringLiteral("locked"));
+                setStatusText(i18n("Too many incorrect PIN attempts. PIN unlock disabled; use your master password."));
+                return;
+            }
+
+            setStatusText(i18np("Incorrect PIN. %1 attempt remaining.", "Incorrect PIN. %1 attempts remaining.", 5 - m_invalidPinAttempts));
+            return;
+        }
+
+        m_invalidPinAttempts = 0;
+        m_session = QString::fromUtf8(session);
+        setState(QStringLiteral("unlocked"));
+        setStatusText(i18n("Vault unlocked with PIN"));
+        loadItems();
+    }
+
+    Q_INVOKABLE void setPin(const QString &pin)
+    {
+        if (pin.size() < 4) {
+            setStatusText(i18n("PIN must be at least 4 characters"));
+            return;
+        }
+
+        if (m_session.isEmpty() || m_state != QStringLiteral("unlocked")) {
+            setStatusText(i18n("Unlock with your master password before setting a PIN"));
+            return;
+        }
+
+        m_pinSalt = randomBytes(16);
+        m_pinNonce = randomBytes(16);
+        m_invalidPinAttempts = 0;
+        wrapSession(pin, m_session.toUtf8());
+        Q_EMIT pinSetChanged();
+        setStatusText(i18n("PIN enabled until KWarden quits"));
+    }
+
+    Q_INVOKABLE void clearPin()
+    {
+        clearPinState();
+        setStatusText(i18n("PIN unlock disabled"));
     }
 
     Q_INVOKABLE void lock()
@@ -148,8 +221,17 @@ public:
             return;
         }
 
+        if (pinSet() && !m_session.isEmpty()) {
+            clearSession();
+            setItems({});
+            setState(QStringLiteral("pinLocked"));
+            setStatusText(i18n("KWarden locked. Unlock with PIN or master password."));
+            return;
+        }
+
         runBw({QStringLiteral("lock")}, {}, true, [this](int, const QByteArray &, const QByteArray &) {
             clearSession();
+            clearPinState();
             setItems({});
             setState(QStringLiteral("locked"));
             setStatusText(i18n("Vault locked"));
@@ -162,9 +244,11 @@ Q_SIGNALS:
     void statusTextChanged();
     void userEmailChanged();
     void busyChanged();
+    void pinSetChanged();
 
 private:
     using ProcessCallback = std::function<void(int, const QByteArray &, const QByteArray &)>;
+    static constexpr int PinKdfIterations = 120000;
 
     void loadItems()
     {
@@ -245,6 +329,107 @@ private:
         m_session.clear();
     }
 
+    void clearPinState()
+    {
+        const bool hadPin = pinSet();
+        m_pinSalt.clear();
+        m_pinNonce.clear();
+        m_wrappedSession.clear();
+        m_pinVerifier.clear();
+        m_invalidPinAttempts = 0;
+        if (hadPin) {
+            Q_EMIT pinSetChanged();
+        }
+    }
+
+    static QByteArray randomBytes(qsizetype size)
+    {
+        QByteArray bytes(size, Qt::Uninitialized);
+        for (qsizetype i = 0; i < size; ++i) {
+            bytes[i] = char(QRandomGenerator::global()->generate() & 0xff);
+        }
+        return bytes;
+    }
+
+    static QByteArray hmacSha256(const QByteArray &key, const QByteArray &message)
+    {
+        return QMessageAuthenticationCode::hash(message, key, QCryptographicHash::Sha256);
+    }
+
+    static QByteArray pbkdf2Sha256(const QByteArray &password, const QByteArray &salt, int iterations, qsizetype outputSize)
+    {
+        QByteArray output;
+        output.reserve(outputSize);
+
+        quint32 blockIndex = 1;
+        while (output.size() < outputSize) {
+            QByteArray blockSalt = salt;
+            blockSalt.append(char((blockIndex >> 24) & 0xff));
+            blockSalt.append(char((blockIndex >> 16) & 0xff));
+            blockSalt.append(char((blockIndex >> 8) & 0xff));
+            blockSalt.append(char(blockIndex & 0xff));
+
+            QByteArray u = hmacSha256(password, blockSalt);
+            QByteArray block = u;
+            for (int i = 1; i < iterations; ++i) {
+                u = hmacSha256(password, u);
+                for (qsizetype j = 0; j < block.size(); ++j) {
+                    block[j] = char(uchar(block[j]) ^ uchar(u[j]));
+                }
+            }
+
+            output.append(block);
+            ++blockIndex;
+        }
+
+        output.truncate(outputSize);
+        return output;
+    }
+
+    static QByteArray xorWithHmacStream(const QByteArray &key, const QByteArray &nonce, const QByteArray &input)
+    {
+        QByteArray output(input.size(), Qt::Uninitialized);
+        qsizetype offset = 0;
+        quint32 counter = 0;
+        while (offset < input.size()) {
+            QByteArray counterBytes = nonce;
+            counterBytes.append(char((counter >> 24) & 0xff));
+            counterBytes.append(char((counter >> 16) & 0xff));
+            counterBytes.append(char((counter >> 8) & 0xff));
+            counterBytes.append(char(counter & 0xff));
+
+            const QByteArray streamBlock = hmacSha256(key, counterBytes);
+            const qsizetype count = std::min(streamBlock.size(), input.size() - offset);
+            for (qsizetype i = 0; i < count; ++i) {
+                output[offset + i] = char(uchar(input[offset + i]) ^ uchar(streamBlock[i]));
+            }
+            offset += count;
+            ++counter;
+        }
+        return output;
+    }
+
+    void wrapSession(const QString &pin, const QByteArray &session)
+    {
+        const QByteArray keys = pbkdf2Sha256(pin.toUtf8(), m_pinSalt, PinKdfIterations, 64);
+        const QByteArray encryptionKey = keys.first(32);
+        const QByteArray authenticationKey = keys.sliced(32, 32);
+        m_wrappedSession = xorWithHmacStream(encryptionKey, m_pinNonce, session);
+        m_pinVerifier = hmacSha256(authenticationKey, m_pinNonce + m_wrappedSession);
+    }
+
+    QByteArray unwrapSession(const QString &pin) const
+    {
+        const QByteArray keys = pbkdf2Sha256(pin.toUtf8(), m_pinSalt, PinKdfIterations, 64);
+        const QByteArray encryptionKey = keys.first(32);
+        const QByteArray authenticationKey = keys.sliced(32, 32);
+        const QByteArray verifier = hmacSha256(authenticationKey, m_pinNonce + m_wrappedSession);
+        if (verifier != m_pinVerifier) {
+            return {};
+        }
+        return xorWithHmacStream(encryptionKey, m_pinNonce, m_wrappedSession);
+    }
+
     void setItems(const QVariantList &items)
     {
         if (m_items == items) {
@@ -295,6 +480,11 @@ private:
     QString m_statusText = i18n("Checking Bitwarden CLI status…");
     QString m_userEmail;
     QString m_session;
+    QByteArray m_pinSalt;
+    QByteArray m_pinNonce;
+    QByteArray m_wrappedSession;
+    QByteArray m_pinVerifier;
+    int m_invalidPinAttempts = 0;
     bool m_busy = false;
 };
 

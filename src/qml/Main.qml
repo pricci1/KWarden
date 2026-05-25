@@ -138,8 +138,14 @@ Kirigami.ApplicationWindow {
 
             Controls.Button {
                 text: i18n("Refresh")
-                enabled: !vaultProvider.busy
+                enabled: !vaultProvider.busy && vaultProvider.state !== "pinLocked"
                 onClicked: root.refreshVault()
+            }
+
+            Controls.Button {
+                text: vaultProvider.pinSet ? i18n("Clear PIN") : i18n("Set PIN")
+                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
+                onClicked: vaultProvider.pinSet ? vaultProvider.clearPin() : setPinDialog.open()
             }
 
             Controls.Button {
@@ -369,9 +375,17 @@ Kirigami.ApplicationWindow {
                     visible: root.selectedItem === null
                     text: vaultProvider.statusText
                     helpfulAction: Kirigami.Action {
-                        text: vaultProvider.state === "locked" ? i18n("Unlock") : i18n("Refresh")
+                        text: vaultProvider.state === "pinLocked" ? i18n("Unlock with PIN") : (vaultProvider.state === "locked" ? i18n("Unlock") : i18n("Refresh"))
                         enabled: !vaultProvider.busy && vaultProvider.state !== "unlocked"
-                        onTriggered: vaultProvider.state === "locked" ? unlockDialog.open() : root.refreshVault()
+                        onTriggered: {
+                            if (vaultProvider.state === "pinLocked") {
+                                pinUnlockDialog.open()
+                            } else if (vaultProvider.state === "locked") {
+                                unlockDialog.open()
+                            } else {
+                                root.refreshVault()
+                            }
+                        }
                     }
                 }
 
@@ -450,7 +464,7 @@ Kirigami.ApplicationWindow {
 
             Controls.Label {
                 Layout.fillWidth: true
-                text: i18n("KWarden sends this password to ‘bw unlock --raw’ over stdin. The resulting session key is kept in memory only and is cleared when you lock or quit.")
+                text: i18n("KWarden sends this password to ‘bw unlock --raw’ over stdin. The resulting session key is kept in memory only. If PIN unlock is enabled, Lock keeps only an in-memory PIN-wrapped copy of that session key.")
                 wrapMode: Text.Wrap
             }
 
@@ -461,6 +475,114 @@ Kirigami.ApplicationWindow {
                 echoMode: TextInput.Password
                 enabled: !vaultProvider.busy
                 onAccepted: unlockDialog.accept()
+            }
+        }
+    }
+
+    Controls.Dialog {
+        id: pinUnlockDialog
+        title: i18n("Unlock with PIN")
+        modal: true
+        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        closePolicy: Controls.Popup.CloseOnEscape
+        anchors.centerIn: parent
+
+        onOpened: pinUnlockField.forceActiveFocus()
+        onAccepted: {
+            vaultProvider.unlockWithPin(pinUnlockField.text)
+            pinUnlockField.text = ""
+            root.actionStatusText = ""
+        }
+        onRejected: pinUnlockField.text = ""
+
+        ColumnLayout {
+            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 20)
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: i18n("This unlocks KWarden using the in-memory PIN-wrapped BW_SESSION. It is available only until KWarden quits.")
+                wrapMode: Text.Wrap
+            }
+
+            Controls.TextField {
+                id: pinUnlockField
+                Layout.fillWidth: true
+                placeholderText: i18n("PIN")
+                echoMode: TextInput.Password
+                enabled: !vaultProvider.busy
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                onAccepted: pinUnlockDialog.accept()
+            }
+
+            Controls.Button {
+                text: i18n("Use master password instead")
+                enabled: !vaultProvider.busy
+                onClicked: {
+                    pinUnlockDialog.close()
+                    pinUnlockField.text = ""
+                    unlockDialog.open()
+                }
+            }
+        }
+    }
+
+    Controls.Dialog {
+        id: setPinDialog
+        title: i18n("Set PIN")
+        modal: true
+        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        closePolicy: Controls.Popup.CloseOnEscape
+        anchors.centerIn: parent
+
+        onOpened: newPinField.forceActiveFocus()
+        onAccepted: {
+            if (newPinField.text.length < 4 || newPinField.text !== confirmPinField.text) {
+                root.actionStatusText = i18n("PINs must match and be at least 4 characters")
+                newPinField.text = ""
+                confirmPinField.text = ""
+            } else {
+                vaultProvider.setPin(newPinField.text)
+                newPinField.text = ""
+                confirmPinField.text = ""
+                root.actionStatusText = ""
+            }
+        }
+        onRejected: {
+            newPinField.text = ""
+            confirmPinField.text = ""
+        }
+
+        ColumnLayout {
+            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 22)
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: i18n("The PIN is ephemeral: nothing is written to disk, and PIN unlock disappears when KWarden quits. Lock will keep only a PIN-wrapped BW_SESSION in memory.")
+                wrapMode: Text.Wrap
+            }
+
+            Controls.TextField {
+                id: newPinField
+                Layout.fillWidth: true
+                placeholderText: i18n("PIN")
+                echoMode: TextInput.Password
+                enabled: !vaultProvider.busy
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                onTextChanged: setPinDialog.standardButton(Controls.Dialog.Ok).enabled = text.length >= 4 && text === confirmPinField.text
+                onAccepted: setPinDialog.accept()
+            }
+
+            Controls.TextField {
+                id: confirmPinField
+                Layout.fillWidth: true
+                placeholderText: i18n("Confirm PIN")
+                echoMode: TextInput.Password
+                enabled: !vaultProvider.busy
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                onTextChanged: setPinDialog.standardButton(Controls.Dialog.Ok).enabled = text.length >= 4 && text === newPinField.text
+                onAccepted: setPinDialog.accept()
             }
         }
     }
