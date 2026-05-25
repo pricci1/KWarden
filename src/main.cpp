@@ -18,9 +18,11 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QShortcut>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStringList>
+#include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -164,9 +166,11 @@ public:
         : QWidget(parent)
         , m_value(clipboardValue.isNull() ? value : clipboardValue)
     {
+        setObjectName(QStringLiteral("fieldRow"));
+
         auto *layout = new QVBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(4);
+        layout->setContentsMargins(14, 9, 14, 9);
+        layout->setSpacing(2);
 
         auto *title = new QLabel(label, this);
         QFont titleFont = title->font();
@@ -180,13 +184,14 @@ public:
 
         auto *copyButton = new QPushButton(i18n("Copy"), this);
         copyButton->setEnabled(!value.isEmpty());
+        copyButton->setMinimumWidth(92);
         connect(copyButton, &QPushButton::clicked, this, [this, copyButton]() {
             QApplication::clipboard()->setText(m_value);
             copyButton->setText(i18n("Copied"));
             QTimer::singleShot(1200, copyButton, [copyButton]() { copyButton->setText(i18n("Copy")); });
         });
 
-        valueRow->addSpacing(24);
+        valueRow->addSpacing(8);
         valueRow->addWidget(valueLabel, 1);
         valueRow->addWidget(copyButton);
 
@@ -206,49 +211,129 @@ public:
         , m_items(loadMockVault())
     {
         setWindowTitle(i18n("KWarden"));
-        resize(960, 640);
+        resize(1060, 680);
+        setMinimumSize(860, 560);
 
         auto *central = new QWidget(this);
+        central->setObjectName(QStringLiteral("appRoot"));
+        central->setStyleSheet(QStringLiteral(R"(
+            #appRoot {
+                background: palette(window);
+            }
+            #topBar {
+                background: palette(window);
+                border-bottom: 1px solid palette(mid);
+            }
+            #sidebarPane {
+                background: palette(base);
+                border-right: 1px solid palette(mid);
+            }
+            #detailPane {
+                background: palette(base);
+            }
+            #sidebarTitle, #detailTitle {
+                font-size: 20px;
+                font-weight: 600;
+            }
+            #sectionLabel, #shortcutLabel {
+                color: palette(mid);
+                font-weight: 600;
+            }
+            #searchBox {
+                min-height: 34px;
+                padding-left: 10px;
+                border: 1px solid palette(mid);
+                border-radius: 6px;
+                background: palette(base);
+            }
+            QListWidget {
+                background: transparent;
+                border: 0;
+                outline: 0;
+            }
+            QListWidget::item {
+                min-height: 34px;
+                padding: 6px 10px;
+                border-radius: 6px;
+            }
+            QListWidget::item:selected {
+                background: palette(highlight);
+                color: palette(highlighted-text);
+            }
+            #fieldRow {
+                background: palette(alternate-base);
+                border: 1px solid palette(midlight);
+                border-radius: 8px;
+            }
+            QScrollArea {
+                border: 0;
+                background: transparent;
+            }
+            QPushButton {
+                min-height: 28px;
+                padding-left: 12px;
+                padding-right: 12px;
+            }
+        )"));
+
         auto *root = new QVBoxLayout(central);
-        root->setContentsMargins(12, 12, 12, 12);
-        root->setSpacing(10);
+        root->setContentsMargins(0, 0, 0, 0);
+        root->setSpacing(0);
 
-        m_search = new QLineEdit(central);
-        m_search->setPlaceholderText(i18n("Search"));
-        m_search->setClearButtonEnabled(true);
-        m_search->setMaximumWidth(520);
+        auto *topBar = new QFrame(central);
+        topBar->setObjectName(QStringLiteral("topBar"));
+        auto *topBarLayout = new QHBoxLayout(topBar);
+        topBarLayout->setContentsMargins(20, 12, 20, 12);
+        topBarLayout->setSpacing(16);
 
-        auto *searchRow = new QHBoxLayout;
-        searchRow->addStretch();
-        searchRow->addWidget(m_search);
-        searchRow->addStretch();
-        root->addLayout(searchRow);
+        auto *title = new QLabel(i18n("KWarden"), topBar);
+        title->setObjectName(QStringLiteral("detailTitle"));
+        auto *subtitle = new QLabel(i18n("Bitwarden CLI vault"), topBar);
+        subtitle->setObjectName(QStringLiteral("sectionLabel"));
+        topBarLayout->addWidget(title);
+        topBarLayout->addWidget(subtitle);
+        topBarLayout->addStretch();
 
-        auto *message = new KMessageWidget(i18n("Development mode: vault data is mocked from Bitwarden CLI response shapes. Real bw integration can replace this provider."), central);
-        message->setMessageType(KMessageWidget::Information);
-        message->setCloseButtonVisible(true);
-        root->addWidget(message);
+        auto *shortcutHint = new QLabel(i18n("Ctrl+U Username   Ctrl+P Password   Ctrl+T TOTP"), topBar);
+        shortcutHint->setObjectName(QStringLiteral("shortcutLabel"));
+        topBarLayout->addWidget(shortcutHint);
+        root->addWidget(topBar);
 
         auto *splitter = new QSplitter(Qt::Horizontal, central);
-        m_list = new QListWidget(splitter);
-        m_list->setMinimumWidth(220);
+
+        auto *sidebar = new QWidget(splitter);
+        sidebar->setObjectName(QStringLiteral("sidebarPane"));
+        auto *sidebarLayout = new QVBoxLayout(sidebar);
+        sidebarLayout->setContentsMargins(12, 12, 12, 12);
+        sidebarLayout->setSpacing(10);
+
+        m_search = new QLineEdit(central);
+        m_search->setObjectName(QStringLiteral("searchBox"));
+        m_search->setPlaceholderText(i18n("Search vault…"));
+        m_search->setClearButtonEnabled(true);
+        sidebarLayout->addWidget(m_search);
+
+        auto *sidebarTitle = new QLabel(i18n("Vault Items"), sidebar);
+        sidebarTitle->setObjectName(QStringLiteral("sectionLabel"));
+        sidebarLayout->addWidget(sidebarTitle);
+
+        m_list = new QListWidget(sidebar);
+        m_list->setMinimumWidth(260);
         m_list->setSelectionMode(QAbstractItemView::SingleSelection);
-        splitter->addWidget(m_list);
+        sidebarLayout->addWidget(m_list, 1);
+        splitter->addWidget(sidebar);
 
         m_detail = new QWidget(splitter);
+        m_detail->setObjectName(QStringLiteral("detailPane"));
         m_detailLayout = new QVBoxLayout(m_detail);
-        m_detailLayout->setContentsMargins(28, 22, 28, 22);
-        m_detailLayout->setSpacing(18);
+        m_detailLayout->setContentsMargins(32, 24, 32, 24);
+        m_detailLayout->setSpacing(16);
         splitter->addWidget(m_detail);
         splitter->setStretchFactor(0, 0);
         splitter->setStretchFactor(1, 1);
 
         root->addWidget(splitter, 1);
         setCentralWidget(central);
-
-        auto *fileMenu = menuBar()->addMenu(i18n("File"));
-        auto *quitAction = fileMenu->addAction(i18n("Quit"));
-        connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
         connect(m_search, &QLineEdit::textChanged, this, &KWardenWindow::refilter);
         connect(m_list, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -265,7 +350,7 @@ public:
         addCopyShortcut(QKeySequence(Qt::CTRL | Qt::Key_T), i18n("TOTP"), &VaultItem::totp);
 
         refilter();
-        statusBar()->showMessage(i18n("%1 mocked vault items loaded", m_items.size()));
+        statusBar()->showMessage(i18n("Development mode: %1 mocked Bitwarden CLI items loaded", m_items.size()));
     }
 
 private:
@@ -376,11 +461,15 @@ private:
         const VaultItem &item = *it;
 
         auto *title = new QLabel(item.favorite ? i18n("★ %1", item.name) : item.name, m_detail);
+        title->setObjectName(QStringLiteral("detailTitle"));
         QFont titleFont = title->font();
-        titleFont.setPointSize(titleFont.pointSize() + 8);
         titleFont.setBold(true);
         title->setFont(titleFont);
         m_detailLayout->addWidget(title);
+
+        auto *hint = new QLabel(i18n("Use the buttons or keyboard shortcuts to copy fields from this item."), m_detail);
+        hint->setObjectName(QStringLiteral("sectionLabel"));
+        m_detailLayout->addWidget(hint);
 
         auto *scrollArea = new QScrollArea(m_detail);
         scrollArea->setWidgetResizable(true);
@@ -389,7 +478,7 @@ private:
         auto *content = new QWidget(scrollArea);
         auto *contentLayout = new QVBoxLayout(content);
         contentLayout->setContentsMargins(0, 0, 0, 0);
-        contentLayout->setSpacing(20);
+        contentLayout->setSpacing(12);
 
         contentLayout->addWidget(new SecretRow(i18n("Username"), item.username, false, content));
         contentLayout->addWidget(new SecretRow(i18n("Password"), item.password, true, content));
