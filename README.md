@@ -25,8 +25,9 @@ distrobox enter kde-dev -- bash -lc 'cmake -S . -B build -G Ninja -DCMAKE_BUILD_
 
 ## Current features
 
-- Native Qt Widgets/KDE Frameworks application
+- Native Kirigami/QML KDE application
 - Searchable vault item list
 - Detail pane for username, password, TOTP, custom fields, and notes
 - Clipboard copy buttons for secret values
+- Keyboard shortcuts: `Ctrl+U` username, `Ctrl+P` password, `Ctrl+T` TOTP
 - Mock data based on Bitwarden CLI item/list responses
