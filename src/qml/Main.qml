@@ -6,16 +6,24 @@ import org.kde.kirigami as Kirigami
 Kirigami.ApplicationWindow {
     id: root
 
-    width: 1060
-    height: 680
-    minimumWidth: 860
-    minimumHeight: 560
+    width: 980
+    height: 640
+    minimumWidth: 760
+    minimumHeight: 520
     title: i18n("KWarden")
     visible: true
 
     property string searchText: ""
     property int selectedIndex: 0
     property string statusText: i18np("Development mode: %1 mocked Bitwarden CLI item loaded", "Development mode: %1 mocked Bitwarden CLI items loaded", allItems.length)
+    readonly property color selectionColor: Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                   Kirigami.Theme.highlightColor.g,
+                                                   Kirigami.Theme.highlightColor.b,
+                                                   0.28)
+    readonly property color hoverColor: Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                               Kirigami.Theme.highlightColor.g,
+                                               Kirigami.Theme.highlightColor.b,
+                                               0.12)
 
     // These objects mirror Bitwarden CLI's `ListResponse`/`CipherResponse` shape:
     // { object: "list", data: [{ object: "item", type: 1, login: ..., fields: ... }] }.
@@ -221,14 +229,14 @@ Kirigami.ApplicationWindow {
         orientation: Qt.Horizontal
 
         Rectangle {
-            Controls.SplitView.preferredWidth: 320
-            Controls.SplitView.minimumWidth: 260
+            Controls.SplitView.preferredWidth: 300
+            Controls.SplitView.minimumWidth: 240
             color: Kirigami.Theme.backgroundColor
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.largeSpacing
+                anchors.margins: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 Controls.TextField {
                     Layout.fillWidth: true
@@ -241,6 +249,8 @@ Kirigami.ApplicationWindow {
                 }
 
                 Controls.Label {
+                    Layout.leftMargin: Kirigami.Units.smallSpacing
+                    Layout.topMargin: Kirigami.Units.smallSpacing
                     text: i18n("Vault Items")
                     color: Kirigami.Theme.disabledTextColor
                     font.weight: Font.DemiBold
@@ -253,16 +263,67 @@ Kirigami.ApplicationWindow {
                     clip: true
                     model: root.filteredItems
                     currentIndex: Math.min(root.selectedIndex, Math.max(0, count - 1))
+                    boundsBehavior: Flickable.StopAtBounds
+                    spacing: Kirigami.Units.smallSpacing / 2
+
+                    Controls.ScrollBar.vertical: Controls.ScrollBar {
+                        policy: Controls.ScrollBar.AsNeeded
+                    }
 
                     delegate: Controls.ItemDelegate {
                         required property var modelData
                         required property int index
 
                         width: ListView.view.width
-                        highlighted: index === root.selectedIndex
-                        text: (modelData.favorite ? "★ " : "") + modelData.name
-                        icon.name: "dialog-password"
+                        height: Kirigami.Units.gridUnit * 2
+                        leftPadding: Kirigami.Units.smallSpacing
+                        rightPadding: Kirigami.Units.smallSpacing
+                        topPadding: 0
+                        bottomPadding: 0
+                        highlighted: ListView.isCurrentItem
                         onClicked: root.selectedIndex = index
+
+                        background: Rectangle {
+                            radius: Kirigami.Units.cornerRadius
+                            color: parent.highlighted ? root.selectionColor : (parent.hovered ? root.hoverColor : "transparent")
+                        }
+
+                        contentItem: RowLayout {
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
+                                source: "dialog-password"
+                                opacity: 0.8
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.name
+                                    elide: Text.ElideRight
+                                }
+
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.login.username
+                                    color: Kirigami.Theme.disabledTextColor
+                                    elide: Text.ElideRight
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                }
+                            }
+
+                            Controls.Label {
+                                text: "★"
+                                visible: modelData.favorite
+                                color: Kirigami.Theme.neutralTextColor
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            }
+                        }
                     }
 
                     Kirigami.PlaceholderMessage {
@@ -278,21 +339,36 @@ Kirigami.ApplicationWindow {
 
         Kirigami.ScrollablePage {
             Controls.SplitView.fillWidth: true
-            padding: Kirigami.Units.gridUnit * 1.5
+            padding: Kirigami.Units.gridUnit
+            background: Rectangle {
+                color: Kirigami.Theme.backgroundColor
+            }
 
             ColumnLayout {
                 width: parent.width
-                spacing: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
 
-                Kirigami.Heading {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: root.selectedItem ? ((root.selectedItem.favorite ? "★ " : "") + root.selectedItem.name) : i18n("No vault item selected")
-                    level: 1
-                    wrapMode: Text.Wrap
+
+                    Kirigami.Heading {
+                        Layout.fillWidth: true
+                        text: root.selectedItem ? root.selectedItem.name : i18n("No vault item selected")
+                        level: 2
+                        wrapMode: Text.Wrap
+                    }
+
+                    Controls.Label {
+                        text: i18n("Favorite")
+                        visible: root.selectedItem && root.selectedItem.favorite
+                        color: Kirigami.Theme.neutralTextColor
+                        font.weight: Font.DemiBold
+                    }
                 }
 
                 Controls.Label {
                     Layout.fillWidth: true
+                    Layout.bottomMargin: Kirigami.Units.smallSpacing
                     text: i18n("Use the buttons or keyboard shortcuts to copy fields from this item.")
                     color: Kirigami.Theme.disabledTextColor
                     font.weight: Font.DemiBold
@@ -360,14 +436,20 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    component FieldCard: Kirigami.AbstractCard {
+    component FieldCard: Rectangle {
         property string title
         property string value
         property string copyValue
 
         Layout.fillWidth: true
+        implicitHeight: fieldRow.implicitHeight + Kirigami.Units.largeSpacing
+        color: "transparent"
 
-        contentItem: RowLayout {
+        RowLayout {
+            id: fieldRow
+            anchors.fill: parent
+            anchors.leftMargin: Kirigami.Units.smallSpacing
+            anchors.rightMargin: Kirigami.Units.smallSpacing
             spacing: Kirigami.Units.largeSpacing
 
             ColumnLayout {
@@ -391,6 +473,12 @@ Kirigami.ApplicationWindow {
                 enabled: copyValue.length > 0
                 onClicked: root.copyValue(title, copyValue)
             }
+        }
+
+        Kirigami.Separator {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
         }
     }
 }
