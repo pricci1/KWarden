@@ -1,13 +1,22 @@
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QStandardPaths>
 #include <QTimer>
+#include <QVariantList>
 
 #include <KAboutData>
 #include <KLocalizedContext>
 #include <KLocalizedString>
+
+#include <functional>
 
 class ClipboardBridge : public QObject
 {
@@ -23,6 +32,270 @@ public:
     {
         QGuiApplication::clipboard()->setText(value);
     }
+};
+
+class BwCliProvider : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
+    Q_PROPERTY(QString state READ state NOTIFY stateChanged)
+    Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    Q_PROPERTY(QString userEmail READ userEmail NOTIFY userEmailChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+
+public:
+    explicit BwCliProvider(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+    }
+
+    QVariantList items() const
+    {
+        return m_items;
+    }
+
+    QString state() const
+    {
+        return m_state;
+    }
+
+    QString statusText() const
+    {
+        return m_statusText;
+    }
+
+    QString userEmail() const
+    {
+        return m_userEmail;
+    }
+
+    bool busy() const
+    {
+        return m_busy;
+    }
+
+    Q_INVOKABLE void refresh()
+    {
+        if (m_busy) {
+            return;
+        }
+
+        if (QStandardPaths::findExecutable(QStringLiteral("bw")).isEmpty()) {
+            setItems({});
+            setState(QStringLiteral("missing"));
+            setStatusText(i18n("Bitwarden CLI (bw) was not found in PATH"));
+            return;
+        }
+
+        runBw({QStringLiteral("status"), QStringLiteral("--raw")}, {}, false, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+            if (exitCode != 0) {
+                setItems({});
+                setState(QStringLiteral("error"));
+                setStatusText(errorMessage(i18n("Failed to read Bitwarden CLI status"), stderrData));
+                return;
+            }
+
+            const QJsonDocument statusDocument = QJsonDocument::fromJson(stdoutData);
+            const QJsonObject statusObject = statusDocument.object();
+            const QString status = statusObject.value(QStringLiteral("status")).toString();
+            setUserEmail(statusObject.value(QStringLiteral("userEmail")).toString());
+
+            if (status == QStringLiteral("unlocked")) {
+                setState(QStringLiteral("unlocked"));
+                loadItems();
+            } else if (status == QStringLiteral("locked")) {
+                setItems({});
+                setState(QStringLiteral("locked"));
+                setStatusText(i18n("Vault locked. Enter your master password to unlock."));
+            } else if (status == QStringLiteral("unauthenticated")) {
+                setItems({});
+                clearSession();
+                setState(QStringLiteral("unauthenticated"));
+                setStatusText(i18n("Not logged in. Run ‘bw login’ in a terminal, then refresh."));
+            } else {
+                setItems({});
+                setState(QStringLiteral("error"));
+                setStatusText(i18n("Unexpected Bitwarden CLI status response"));
+            }
+        });
+    }
+
+    Q_INVOKABLE void unlock(const QString &masterPassword)
+    {
+        if (m_busy || masterPassword.isEmpty()) {
+            return;
+        }
+
+        runBw({QStringLiteral("unlock"), QStringLiteral("--raw")}, masterPassword.toUtf8(), false, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+            if (exitCode != 0) {
+                clearSession();
+                setItems({});
+                setState(QStringLiteral("locked"));
+                setStatusText(errorMessage(i18n("Failed to unlock vault"), stderrData));
+                return;
+            }
+
+            m_session = QString::fromUtf8(stdoutData).trimmed();
+            setState(QStringLiteral("unlocked"));
+            setStatusText(i18n("Vault unlocked for this KWarden session"));
+            loadItems();
+        });
+    }
+
+    Q_INVOKABLE void lock()
+    {
+        if (m_busy) {
+            return;
+        }
+
+        runBw({QStringLiteral("lock")}, {}, true, [this](int, const QByteArray &, const QByteArray &) {
+            clearSession();
+            setItems({});
+            setState(QStringLiteral("locked"));
+            setStatusText(i18n("Vault locked"));
+        });
+    }
+
+Q_SIGNALS:
+    void itemsChanged();
+    void stateChanged();
+    void statusTextChanged();
+    void userEmailChanged();
+    void busyChanged();
+
+private:
+    using ProcessCallback = std::function<void(int, const QByteArray &, const QByteArray &)>;
+
+    void loadItems()
+    {
+        runBw({QStringLiteral("list"), QStringLiteral("items")}, {}, true, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+            if (exitCode != 0) {
+                setItems({});
+                setState(QStringLiteral("error"));
+                setStatusText(errorMessage(i18n("Failed to load vault items"), stderrData));
+                return;
+            }
+
+            const QJsonDocument itemsDocument = QJsonDocument::fromJson(stdoutData);
+            if (!itemsDocument.isArray()) {
+                setItems({});
+                setState(QStringLiteral("error"));
+                setStatusText(i18n("Unexpected Bitwarden CLI item response"));
+                return;
+            }
+
+            QVariantList items = itemsDocument.array().toVariantList();
+            setItems(items);
+            setState(QStringLiteral("unlocked"));
+            setStatusText(i18np("Loaded %1 vault item", "Loaded %1 vault items", items.size()));
+        });
+    }
+
+    void runBw(const QStringList &arguments, const QByteArray &stdinData, bool withSession, ProcessCallback callback)
+    {
+        setBusy(true);
+
+        auto *process = new QProcess(this);
+        process->setProgram(QStringLiteral("bw"));
+        process->setArguments(arguments);
+
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        if (withSession && !m_session.isEmpty()) {
+            environment.insert(QStringLiteral("BW_SESSION"), m_session);
+        }
+        process->setProcessEnvironment(environment);
+
+        connect(process, &QProcess::started, process, [process, stdinData]() {
+            if (!stdinData.isEmpty()) {
+                process->write(stdinData);
+                process->write("\n");
+            }
+            process->closeWriteChannel();
+        });
+
+        connect(process, &QProcess::finished, this, [this, process, callback](int exitCode, QProcess::ExitStatus) {
+            const QByteArray stdoutData = process->readAllStandardOutput();
+            const QByteArray stderrData = process->readAllStandardError();
+            process->deleteLater();
+            setBusy(false);
+            callback(exitCode, stdoutData, stderrData);
+        });
+
+        connect(process, &QProcess::errorOccurred, this, [this, process, callback](QProcess::ProcessError) {
+            const QByteArray stderrData = process->errorString().toUtf8();
+            process->deleteLater();
+            setBusy(false);
+            callback(-1, {}, stderrData);
+        });
+
+        process->start();
+    }
+
+    static QString errorMessage(const QString &prefix, const QByteArray &stderrData)
+    {
+        const QString detail = QString::fromUtf8(stderrData).trimmed();
+        if (detail.isEmpty()) {
+            return prefix;
+        }
+        return i18n("%1: %2", prefix, detail);
+    }
+
+    void clearSession()
+    {
+        m_session.clear();
+    }
+
+    void setItems(const QVariantList &items)
+    {
+        if (m_items == items) {
+            return;
+        }
+        m_items = items;
+        Q_EMIT itemsChanged();
+    }
+
+    void setState(const QString &state)
+    {
+        if (m_state == state) {
+            return;
+        }
+        m_state = state;
+        Q_EMIT stateChanged();
+    }
+
+    void setStatusText(const QString &statusText)
+    {
+        if (m_statusText == statusText) {
+            return;
+        }
+        m_statusText = statusText;
+        Q_EMIT statusTextChanged();
+    }
+
+    void setUserEmail(const QString &userEmail)
+    {
+        if (m_userEmail == userEmail) {
+            return;
+        }
+        m_userEmail = userEmail;
+        Q_EMIT userEmailChanged();
+    }
+
+    void setBusy(bool busy)
+    {
+        if (m_busy == busy) {
+            return;
+        }
+        m_busy = busy;
+        Q_EMIT busyChanged();
+    }
+
+    QVariantList m_items;
+    QString m_state = QStringLiteral("loading");
+    QString m_statusText = i18n("Checking Bitwarden CLI status…");
+    QString m_userEmail;
+    QString m_session;
+    bool m_busy = false;
 };
 
 namespace
@@ -58,9 +331,11 @@ int main(int argc, char **argv)
     KAboutData::setApplicationData(about);
 
     ClipboardBridge clipboardBridge;
+    BwCliProvider vaultProvider;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("clipboardBridge"), &clipboardBridge);
+    engine.rootContext()->setContextProperty(QStringLiteral("vaultProvider"), &vaultProvider);
     engine.loadFromModule(QStringLiteral("org.kwarden"), QStringLiteral("Main"));
 
     if (engine.rootObjects().isEmpty()) {
@@ -72,6 +347,8 @@ int main(int argc, char **argv)
             QCoreApplication::exit(0);
         });
     }
+
+    QTimer::singleShot(0, &vaultProvider, &BwCliProvider::refresh);
 
     return app.exec();
 }

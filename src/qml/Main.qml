@@ -15,7 +15,7 @@ Kirigami.ApplicationWindow {
 
     property string searchText: ""
     property int selectedIndex: 0
-    property string statusText: i18np("Development mode: %1 mocked Bitwarden CLI item loaded", "Development mode: %1 mocked Bitwarden CLI items loaded", allItems.length)
+    property string actionStatusText: ""
     readonly property color selectionColor: Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                    Kirigami.Theme.highlightColor.g,
                                                    Kirigami.Theme.highlightColor.b,
@@ -25,106 +25,24 @@ Kirigami.ApplicationWindow {
                                                Kirigami.Theme.highlightColor.b,
                                                0.12)
 
-    // These objects mirror Bitwarden CLI's `ListResponse`/`CipherResponse` shape:
-    // { object: "list", data: [{ object: "item", type: 1, login: ..., fields: ... }] }.
-    readonly property var bitwardenListResponse: ({
-        object: "list",
-        data: [
-            {
-                object: "item",
-                id: "1",
-                type: 1,
-                name: "Google",
-                notes: "Primary personal Google account.",
-                favorite: true,
-                collectionIds: [],
-                fields: [
-                    { name: "Recovery Code", value: "orchid-garden-42", type: 1 },
-                    { name: "Account ID", value: "acct_9Yx732", type: 0 }
-                ],
-                login: {
-                    username: "MyUsername132",
-                    password: "correct horse battery staple",
-                    totp: "123 456",
-                    uris: [{ uri: "https://google.example" }]
-                }
-            },
-            {
-                object: "item",
-                id: "2",
-                type: 1,
-                name: "Twitter",
-                notes: "Developer account.",
-                favorite: false,
-                collectionIds: [],
-                fields: [],
-                login: {
-                    username: "otto_dev",
-                    password: "blue-bird-secret",
-                    totp: "714 209",
-                    uris: [{ uri: "https://twitter.example" }]
-                }
-            },
-            {
-                object: "item",
-                id: "3",
-                type: 1,
-                name: "My Bank",
-                notes: "Call before international travel.",
-                favorite: false,
-                collectionIds: [],
-                fields: [{ name: "PIN", value: "9842", type: 1 }],
-                login: {
-                    username: "checking-7781",
-                    password: "vaulted-bank-password",
-                    totp: "620 118",
-                    uris: [{ uri: "https://mybank.example" }]
-                }
-            },
-            {
-                object: "item",
-                id: "4",
-                type: 1,
-                name: "OpenRouter",
-                notes: "API dashboard.",
-                favorite: false,
-                collectionIds: [],
-                fields: [{ name: "Default model", value: "openai/gpt-4.1", type: 0 }],
-                login: {
-                    username: "otto@example.com",
-                    password: "sk-or-v1-not-a-real-key",
-                    totp: "",
-                    uris: [{ uri: "https://openrouter.example" }]
-                }
-            },
-            {
-                object: "item",
-                id: "5",
-                type: 1,
-                name: "Some Site",
-                notes: "Imported from browser extension.",
-                favorite: false,
-                collectionIds: [],
-                fields: [],
-                login: {
-                    username: "somebody",
-                    password: "generic-password",
-                    totp: "832 551",
-                    uris: [{ uri: "https://somesite.example" }]
-                }
-            }
-        ]
-    })
-    readonly property var allItems: bitwardenListResponse.data
+    readonly property var allItems: vaultProvider.items
     readonly property var filteredItems: allItems.filter(function(item) {
         var query = root.searchText.trim().toLowerCase()
         if (query.length === 0) {
             return true
         }
 
-        return [item.name, item.login.username, item.notes].join(" ").toLowerCase().indexOf(query) !== -1
+        return [item.name, loginValue(item, "username"), item.notes].join(" ").toLowerCase().indexOf(query) !== -1
     })
     readonly property var selectedItem: filteredItems.length === 0 ? null : filteredItems[Math.min(selectedIndex, filteredItems.length - 1)]
+
+    function loginValue(item, fieldName) {
+        if (!item || !item.login) {
+            return ""
+        }
+
+        return item.login[fieldName] || ""
+    }
 
     function masked(value) {
         if (!value || value.length === 0) {
@@ -140,32 +58,37 @@ Kirigami.ApplicationWindow {
 
     function copyValue(label, value) {
         if (!root.selectedItem) {
-            root.statusText = i18n("No vault item selected")
+            root.actionStatusText = i18n("No vault item selected")
             return
         }
 
         if (!value || value.length === 0) {
-            root.statusText = i18n("Selected item has no %1", label)
+            root.actionStatusText = i18n("Selected item has no %1", label)
             return
         }
 
         clipboardBridge.copy(value)
-        root.statusText = i18n("Copied %1 for %2", label, root.selectedItem.name)
+        root.actionStatusText = i18n("Copied %1 for %2", label, root.selectedItem.name)
     }
 
     function copyField(fieldName) {
         if (!root.selectedItem) {
-            root.statusText = i18n("No vault item selected")
+            root.actionStatusText = i18n("No vault item selected")
             return
         }
 
         if (fieldName === "username") {
-            copyValue(i18n("username"), root.selectedItem.login.username)
+            copyValue(i18n("username"), root.loginValue(root.selectedItem, "username"))
         } else if (fieldName === "password") {
-            copyValue(i18n("password"), root.selectedItem.login.password)
+            copyValue(i18n("password"), root.loginValue(root.selectedItem, "password"))
         } else if (fieldName === "totp") {
-            copyValue(i18n("TOTP"), totpClipboardValue(root.selectedItem.login.totp))
+            copyValue(i18n("TOTP"), totpClipboardValue(root.loginValue(root.selectedItem, "totp")))
         }
+    }
+
+    function refreshVault() {
+        root.actionStatusText = ""
+        vaultProvider.refresh()
     }
 
     Shortcut {
@@ -198,7 +121,7 @@ Kirigami.ApplicationWindow {
             }
 
             Controls.Label {
-                text: i18n("Bitwarden CLI vault")
+                text: vaultProvider.userEmail.length > 0 ? vaultProvider.userEmail : i18n("Bitwarden CLI vault")
                 color: Kirigami.Theme.disabledTextColor
                 font.weight: Font.DemiBold
             }
@@ -212,11 +135,23 @@ Kirigami.ApplicationWindow {
                 color: Kirigami.Theme.disabledTextColor
                 font.weight: Font.DemiBold
             }
+
+            Controls.Button {
+                text: i18n("Refresh")
+                enabled: !vaultProvider.busy
+                onClicked: root.refreshVault()
+            }
+
+            Controls.Button {
+                text: i18n("Lock")
+                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
+                onClicked: vaultProvider.lock()
+            }
         }
     }
 
     footer: Controls.Label {
-        text: root.statusText
+        text: root.actionStatusText.length > 0 ? root.actionStatusText : vaultProvider.statusText
         leftPadding: Kirigami.Units.smallSpacing
         rightPadding: Kirigami.Units.smallSpacing
         topPadding: Kirigami.Units.smallSpacing / 2
@@ -310,7 +245,7 @@ Kirigami.ApplicationWindow {
 
                                 Controls.Label {
                                     Layout.fillWidth: true
-                                    text: modelData.login.username
+                                    text: root.loginValue(modelData, "username")
                                     color: Kirigami.Theme.disabledTextColor
                                     elide: Text.ElideRight
                                     font.pointSize: Kirigami.Theme.smallFont.pointSize
@@ -329,7 +264,7 @@ Kirigami.ApplicationWindow {
                     Kirigami.PlaceholderMessage {
                         anchors.centerIn: parent
                         visible: itemList.count === 0
-                        text: i18n("No matching vault items")
+                        text: vaultProvider.state === "unlocked" ? i18n("No matching vault items") : vaultProvider.statusText
                     }
                 }
             }
@@ -378,27 +313,27 @@ Kirigami.ApplicationWindow {
 
                 FieldCard {
                     title: i18n("Username")
-                    value: root.selectedItem ? root.selectedItem.login.username : ""
+                    value: root.selectedItem ? root.loginValue(root.selectedItem, "username") : ""
                     copyValue: value
                     visible: root.selectedItem !== null
                 }
 
                 FieldCard {
                     title: i18n("Password")
-                    value: root.selectedItem ? masked(root.selectedItem.login.password) : ""
-                    copyValue: root.selectedItem ? root.selectedItem.login.password : ""
+                    value: root.selectedItem ? masked(root.loginValue(root.selectedItem, "password")) : ""
+                    copyValue: root.selectedItem ? root.loginValue(root.selectedItem, "password") : ""
                     visible: root.selectedItem !== null
                 }
 
                 FieldCard {
                     title: i18n("TOTP")
-                    value: root.selectedItem ? (root.selectedItem.login.totp || "—") : ""
-                    copyValue: root.selectedItem ? totpClipboardValue(root.selectedItem.login.totp) : ""
+                    value: root.selectedItem ? (root.loginValue(root.selectedItem, "totp") || "—") : ""
+                    copyValue: root.selectedItem ? totpClipboardValue(root.loginValue(root.selectedItem, "totp")) : ""
                     visible: root.selectedItem !== null
                 }
 
                 Repeater {
-                    model: root.selectedItem ? root.selectedItem.fields : []
+                    model: root.selectedItem && root.selectedItem.fields ? root.selectedItem.fields : []
 
                     FieldCard {
                         required property var modelData
@@ -423,9 +358,20 @@ Kirigami.ApplicationWindow {
 
                         Controls.Label {
                             Layout.fillWidth: true
-                            text: root.selectedItem && root.selectedItem.notes.length > 0 ? root.selectedItem.notes : "—"
+                            text: root.selectedItem && root.selectedItem.notes && root.selectedItem.notes.length > 0 ? root.selectedItem.notes : "—"
                             wrapMode: Text.Wrap
                         }
+                    }
+                }
+
+                Kirigami.PlaceholderMessage {
+                    Layout.fillWidth: true
+                    visible: root.selectedItem === null
+                    text: vaultProvider.statusText
+                    helpfulAction: Kirigami.Action {
+                        text: vaultProvider.state === "locked" ? i18n("Unlock") : i18n("Refresh")
+                        enabled: !vaultProvider.busy && vaultProvider.state !== "unlocked"
+                        onTriggered: vaultProvider.state === "locked" ? unlockDialog.open() : root.refreshVault()
                     }
                 }
 
@@ -479,6 +425,43 @@ Kirigami.ApplicationWindow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
+        }
+    }
+
+    Controls.Dialog {
+        id: unlockDialog
+        title: i18n("Unlock Bitwarden Vault")
+        modal: true
+        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        closePolicy: Controls.Popup.CloseOnEscape
+        anchors.centerIn: parent
+
+        onOpened: masterPasswordField.forceActiveFocus()
+        onAccepted: {
+            vaultProvider.unlock(masterPasswordField.text)
+            masterPasswordField.text = ""
+            root.actionStatusText = ""
+        }
+        onRejected: masterPasswordField.text = ""
+
+        ColumnLayout {
+            width: Math.min(root.width - Kirigami.Units.gridUnit * 4, Kirigami.Units.gridUnit * 24)
+            spacing: Kirigami.Units.smallSpacing
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: i18n("KWarden sends this password to ‘bw unlock --raw’ over stdin. The resulting session key is kept in memory only and is cleared when you lock or quit.")
+                wrapMode: Text.Wrap
+            }
+
+            Controls.TextField {
+                id: masterPasswordField
+                Layout.fillWidth: true
+                placeholderText: i18n("Master password")
+                echoMode: TextInput.Password
+                enabled: !vaultProvider.busy
+                onAccepted: unlockDialog.accept()
+            }
         }
     }
 }

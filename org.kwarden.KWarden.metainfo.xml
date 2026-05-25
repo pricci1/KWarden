@@ -6,7 +6,7 @@
   <name>KWarden</name>
   <summary>KDE native frontend for Bitwarden CLI</summary>
   <description>
-    <p>KWarden is a Kirigami desktop application for viewing Bitwarden vault items. This early development build uses mocked Bitwarden CLI-shaped data while the real CLI provider is being developed.</p>
+    <p>KWarden is a Kirigami desktop application for viewing Bitwarden vault items through the official Bitwarden CLI.</p>
   </description>
   <launchable type="desktop-id">org.kwarden.KWarden.desktop</launchable>
   <categories>

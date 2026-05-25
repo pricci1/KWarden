@@ -1,18 +1,25 @@
 # KWarden
 
 KWarden is a KDE-native graphical frontend for Bitwarden's official `bw` CLI.
-It is currently a Kirigami/QML desktop application backed by development mock data, with the UI structured so the mock provider can later be replaced by real `bw` process calls.
+It is currently a Kirigami/QML desktop application backed by real `bw` process calls.
 
 ## Status
 
-This project is in early development. The UI is functional, but vault data is mocked.
+This project is in early development. The UI can load vault data through the official Bitwarden CLI.
 
-The mock data mirrors response shapes from the official `bitwarden/clients` CLI implementation:
+KWarden expects `bw` to be installed and available in `PATH`. Login is still delegated to the CLI:
 
-- `bw list items` style wrapper: `{ "object": "list", "data": [...] }`
-- login cipher items: `{ "object": "item", "type": 1, "login": { ... }, "fields": [...] }`
+- Run `bw login` in a terminal if the CLI is unauthenticated.
+- KWarden checks `bw status --raw` on startup and refresh.
+- If the vault is locked, KWarden unlocks with `bw unlock --raw` and then loads `bw list items`.
 
-This keeps the app usable while the real CLI provider is being built.
+## Security model
+
+- The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.
+- The returned `BW_SESSION` value is kept only in KWarden process memory.
+- KWarden does not write the master password or session key to KDE Wallet, settings, logs, or disk.
+- Locking the vault runs `bw lock`, clears KWarden's in-memory session key, and removes loaded items from the UI.
+- Quitting the app drops KWarden's in-memory session key. Future KDE Wallet integration can be considered for user-approved session storage, but it is intentionally not used as an automatic key store yet.
 
 ## Features
 
@@ -20,11 +27,11 @@ This keeps the app usable while the real CLI provider is being built.
 - Searchable vault item list
 - Detail pane for username, password, TOTP, custom fields, and notes
 - Clipboard copy buttons for secret values
+- Refresh, unlock, and lock controls for `bw` vault state
 - Keyboard shortcuts:
   - `Ctrl+U`: copy username
   - `Ctrl+P`: copy password
   - `Ctrl+T`: copy TOTP without visual formatting spaces
-- Development mock data based on Bitwarden CLI item/list responses
 
 ## Build
 
@@ -65,13 +72,11 @@ For manual visual checks, launch the app normally. If capturing screenshots on K
 CMakeLists.txt       Build definition for the Kirigami app
 org.kwarden.KWarden.yml
                      Flatpak Builder manifest for the app
-src/main.cpp         Application bootstrap and clipboard bridge for QML
-src/qml/Main.qml     Kirigami UI, mock vault data, search, copy actions
+src/main.cpp         Application bootstrap, clipboard bridge, and bw CLI provider
+src/qml/Main.qml     Kirigami UI, search, unlock/lock state, copy actions
 ```
 
 ## Next steps
 
-- Move mock vault data behind a provider boundary.
-- Add a real `bw` CLI provider using `QProcess`.
-- Handle locked/logged-out CLI states.
+- Consider optional KDE Wallet integration for explicitly user-approved session persistence.
 - Add focused tests for parsing `bw` JSON responses and copy behavior.
