@@ -17,6 +17,7 @@
 #include <QMenuBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStringList>
@@ -59,6 +60,11 @@ QString masked(const QString &value)
     }
 
     return QString(value.size(), QChar(0x2022));
+}
+
+QString totpClipboardValue(QString value)
+{
+    return value.remove(QLatin1Char(' '));
 }
 
 QJsonObject loginItem(const QString &id,
@@ -154,9 +160,9 @@ QList<VaultItem> loadMockVault()
 class SecretRow : public QWidget
 {
 public:
-    SecretRow(const QString &label, const QString &value, bool conceal, QWidget *parent = nullptr)
+    SecretRow(const QString &label, const QString &value, bool conceal, QWidget *parent = nullptr, const QString &clipboardValue = QString())
         : QWidget(parent)
-        , m_value(value)
+        , m_value(clipboardValue.isNull() ? value : clipboardValue)
     {
         auto *layout = new QVBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
@@ -254,11 +260,54 @@ public:
             showItem(item->data(Qt::UserRole).toString());
         });
 
+        addCopyShortcut(QKeySequence(Qt::CTRL | Qt::Key_U), i18n("username"), &VaultItem::username);
+        addCopyShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), i18n("password"), &VaultItem::password);
+        addCopyShortcut(QKeySequence(Qt::CTRL | Qt::Key_T), i18n("TOTP"), &VaultItem::totp);
+
         refilter();
         statusBar()->showMessage(i18n("%1 mocked vault items loaded", m_items.size()));
     }
 
 private:
+    using VaultItemStringMember = QString VaultItem::*;
+
+    void addCopyShortcut(const QKeySequence &sequence, const QString &fieldName, VaultItemStringMember field)
+    {
+        auto *shortcut = new QShortcut(sequence, this);
+        shortcut->setContext(Qt::ApplicationShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this, fieldName, field]() {
+            copyCurrentField(fieldName, field);
+        });
+    }
+
+    void copyCurrentField(const QString &fieldName, VaultItemStringMember field)
+    {
+        const auto *item = selectedItem();
+        if (item == nullptr) {
+            statusBar()->showMessage(i18n("No vault item selected"), 2500);
+            return;
+        }
+
+        const QString value = (*item).*field;
+        if (value.isEmpty()) {
+            statusBar()->showMessage(i18n("Selected item has no %1", fieldName), 2500);
+            return;
+        }
+
+        QApplication::clipboard()->setText(field == &VaultItem::totp ? totpClipboardValue(value) : value);
+        statusBar()->showMessage(i18n("Copied %1 for %2", fieldName, item->name), 2500);
+    }
+
+    const VaultItem *selectedItem() const
+    {
+        const QString id = currentItemId();
+        const auto it = std::find_if(m_items.cbegin(), m_items.cend(), [&id](const VaultItem &item) {
+            return item.id == id;
+        });
+
+        return it == m_items.cend() ? nullptr : &(*it);
+    }
+
     void refilter()
     {
         const QString query = m_search->text().trimmed();
@@ -344,7 +393,7 @@ private:
 
         contentLayout->addWidget(new SecretRow(i18n("Username"), item.username, false, content));
         contentLayout->addWidget(new SecretRow(i18n("Password"), item.password, true, content));
-        contentLayout->addWidget(new SecretRow(i18n("TOTP"), item.totp, false, content));
+        contentLayout->addWidget(new SecretRow(i18n("TOTP"), item.totp, false, content, totpClipboardValue(item.totp)));
 
         for (const auto &field : item.fields) {
             contentLayout->addWidget(new SecretRow(field.name, field.value, field.type == HiddenFieldType, content));
