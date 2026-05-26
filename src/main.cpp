@@ -36,6 +36,8 @@
 #include <KLocalizedContext>
 #include <KLocalizedString>
 
+#include "totp.h"
+
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -53,6 +55,22 @@ public:
     Q_INVOKABLE void copy(const QString &value) const
     {
         QGuiApplication::clipboard()->setText(value);
+    }
+};
+
+class TotpBridge : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit TotpBridge(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+    }
+
+    Q_INVOKABLE QString code(const QString &value) const
+    {
+        return Totp::currentCode(value);
     }
 };
 
@@ -1113,12 +1131,14 @@ int main(int argc, char **argv)
     KAboutData::setApplicationData(about);
 
     ClipboardBridge clipboardBridge;
+    TotpBridge totpBridge;
     KeyboardShortcuts keyboardShortcuts;
     app.installEventFilter(&keyboardShortcuts);
     BwCliProvider vaultProvider;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("clipboardBridge"), &clipboardBridge);
+    engine.rootContext()->setContextProperty(QStringLiteral("totpBridge"), &totpBridge);
     engine.rootContext()->setContextProperty(QStringLiteral("keyboardShortcuts"), &keyboardShortcuts);
     engine.rootContext()->setContextProperty(QStringLiteral("vaultProvider"), &vaultProvider);
     engine.loadFromModule(QStringLiteral("org.kwarden"), QStringLiteral("Main"));

@@ -35,14 +35,14 @@ The `serve` backend starts `bw serve` bound to `localhost` on a random local por
 
 - Native Kirigami/QML KDE interface
 - Searchable vault item list
-- Detail pane for username, password, TOTP, custom fields, and notes
+- Detail pane for username, password, generated TOTP codes, custom fields, and notes
 - Clipboard copy buttons for secret values
 - Refresh, unlock, lock, and PIN controls for `bw` vault state
 - KDE Plasma tray integration: closing the window hides KWarden to the tray; use the tray menu's Quit action to exit
 - Keyboard shortcuts:
   - `Ctrl+U`: copy username
   - `Ctrl+P`: copy password
-  - `Ctrl+T`: copy TOTP without visual formatting spaces
+  - `Ctrl+T`: copy the current TOTP code without visual formatting spaces
 
 ## Build
 

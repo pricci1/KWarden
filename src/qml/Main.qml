@@ -18,6 +18,7 @@ Kirigami.ApplicationWindow {
     property int selectedIndex: 0
     property string actionStatusText: ""
     property bool attemptedInitialUnlockPrompt: false
+    property int totpTick: 0
 
     readonly property var allItems: vaultProvider.items
     readonly property var filteredItems: allItems.filter(function(item) {
@@ -45,6 +46,10 @@ Kirigami.ApplicationWindow {
         return String(value || "").split(" ").join("")
     }
 
+    function totpValue(item, tick) {
+        return totpBridge.code(root.loginValue(item, "totp"))
+    }
+
     function copyValue(label, value) {
         if (!root.selectedItem) {
             root.actionStatusText = i18n("No vault item selected")
@@ -68,8 +73,15 @@ Kirigami.ApplicationWindow {
         } else if (fieldName === "password") {
             copyValue(i18n("password"), root.loginValue(root.selectedItem, "password"))
         } else if (fieldName === "totp") {
-            copyValue(i18n("TOTP"), totpClipboardValue(root.loginValue(root.selectedItem, "totp")))
+            copyValue(i18n("TOTP"), totpClipboardValue(root.totpValue(root.selectedItem, root.totpTick)))
         }
+    }
+
+    Timer {
+        interval: 1000
+        running: true
+        repeat: true
+        onTriggered: ++root.totpTick
     }
 
     function refreshVault() {
@@ -468,16 +480,16 @@ Kirigami.ApplicationWindow {
                         }
 
                         FormCard.FormDelegateSeparator {
-                            visible: !!(root.selectedItem && root.loginValue(root.selectedItem, "totp").length > 0)
+                            visible: !!(root.selectedItem && root.totpValue(root.selectedItem, root.totpTick).length > 0)
                         }
 
                         VaultFieldDelegate {
                             label: i18n("TOTP")
-                            value: root.selectedItem ? root.loginValue(root.selectedItem, "totp") : ""
+                            value: root.selectedItem ? root.totpValue(root.selectedItem, root.totpTick) : ""
                             iconName: "chronometer-symbolic"
                             monospace: true
-                            visible: !!(root.selectedItem && root.loginValue(root.selectedItem, "totp").length > 0)
-                            copyValue: root.selectedItem ? root.totpClipboardValue(root.loginValue(root.selectedItem, "totp")) : ""
+                            visible: !!(root.selectedItem && root.totpValue(root.selectedItem, root.totpTick).length > 0)
+                            copyValue: root.selectedItem ? root.totpClipboardValue(root.totpValue(root.selectedItem, root.totpTick)) : ""
                             onCopyRequested: (l, v) => root.copyValue(l, v)
                         }
                     }

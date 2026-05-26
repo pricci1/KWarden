@@ -11,6 +11,8 @@ include(KDECompilerSettings NO_POLICY_SCOPE)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Widgets)
 find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n Kirigami)
 
+include(CTest)
+
 set(KWARDEN_APP_ID org.kwarden.KWarden)
 
 if (COMMAND qt_policy)
@@ -20,6 +22,7 @@ endif()
 
 qt_add_executable(kwarden
     src/main.cpp
+    src/totp.cpp
 )
 
 qt_add_qml_module(kwarden
@@ -34,6 +37,7 @@ qt_add_qml_module(kwarden
 )
 
 target_compile_features(kwarden PRIVATE cxx_std_20)
+target_include_directories(kwarden PRIVATE src)
 target_link_libraries(kwarden PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -46,6 +50,19 @@ target_link_libraries(kwarden PRIVATE
     KF6::I18n
     KF6::Kirigami
 )
+
+if (BUILD_TESTING)
+    find_package(Qt6 6.6 REQUIRED COMPONENTS Test)
+
+    qt_add_executable(totp_test
+        tests/totp_test.cpp
+        src/totp.cpp
+    )
+    target_compile_features(totp_test PRIVATE cxx_std_20)
+    target_include_directories(totp_test PRIVATE src)
+    target_link_libraries(totp_test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME totp_test COMMAND totp_test)
+endif()
 
 install(TARGETS kwarden ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 install(FILES ${KWARDEN_APP_ID}.desktop DESTINATION ${KDE_INSTALL_APPDIR})
