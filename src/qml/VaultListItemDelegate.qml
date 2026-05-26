@@ -38,7 +38,13 @@ QQC2.ItemDelegate {
         if (it.identity && it.identity.email) {
             return it.identity.email
         }
-        return ""
+        switch (it.type) {
+        case 1: return i18n("Login")
+        case 2: return i18n("Secure Note")
+        case 3: return i18n("Card")
+        case 4: return i18n("Identity")
+        default: return ""
+        }
     }
 
     width: ListView.view ? ListView.view.width : 0

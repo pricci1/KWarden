@@ -30,16 +30,114 @@ Kirigami.ApplicationWindow {
             item.name,
             loginValue(item, "username"),
             (item.login && item.login.uris && item.login.uris.length > 0) ? item.login.uris[0].uri : "",
+            (item.card && item.card.brand) ? item.card.brand : "",
+            (item.card && item.card.cardholderName) ? item.card.cardholderName : "",
+            (item.identity && item.identity.email) ? item.identity.email : "",
+            (item.identity && item.identity.username) ? item.identity.username : "",
+            identityFullName(item),
             item.notes
         ].join(" ").toLowerCase().indexOf(query) !== -1
     })
     readonly property var selectedItem: filteredItems.length === 0 ? null : filteredItems[Math.min(selectedIndex, filteredItems.length - 1)]
+
+    function itemTypeIcon(type) {
+        switch (type) {
+        case 1: return "internet-services-symbolic"
+        case 2: return "view-pim-notes-symbolic"
+        case 3: return "credit-card-symbolic"
+        case 4: return "user-identity-symbolic"
+        default: return "dialog-password-symbolic"
+        }
+    }
+
+    function itemTypeLabel(type) {
+        switch (type) {
+        case 1: return i18n("Login")
+        case 2: return i18n("Secure Note")
+        case 3: return i18n("Card")
+        case 4: return i18n("Identity")
+        default: return i18n("Vault Item")
+        }
+    }
 
     function loginValue(item, fieldName) {
         if (!item || !item.login) {
             return ""
         }
         return item.login[fieldName] || ""
+    }
+
+    function cardValue(item, fieldName) {
+        if (!item || !item.card) {
+            return ""
+        }
+        return item.card[fieldName] || ""
+    }
+
+    function identityValue(item, fieldName) {
+        if (!item || !item.identity) {
+            return ""
+        }
+        return item.identity[fieldName] || ""
+    }
+
+    function identityFullName(item) {
+        if (!item || !item.identity) {
+            return ""
+        }
+        return [item.identity.title, item.identity.firstName, item.identity.middleName, item.identity.lastName]
+            .filter(function(part) { return part && part.length > 0 })
+            .join(" ")
+    }
+
+    function identityAddress(item) {
+        if (!item || !item.identity) {
+            return ""
+        }
+        const identity = item.identity
+        const locality = [identity.city, identity.state, identity.postalCode]
+            .filter(function(part) { return part && part.length > 0 })
+            .join(" ")
+        return [identity.address1, identity.address2, locality, identity.country]
+            .filter(function(part) { return part && part.length > 0 })
+            .join("\n")
+    }
+
+    function cardFields(item) {
+        if (!item || !item.card) {
+            return []
+        }
+        return [
+            { label: i18n("Cardholder"), value: root.cardValue(item, "cardholderName"), iconName: "user-symbolic" },
+            { label: i18n("Brand"), value: root.cardValue(item, "brand"), iconName: "credit-card-symbolic" },
+            { label: i18n("Number"), value: root.cardValue(item, "number"), iconName: "password-show-on-symbolic", sensitive: true, monospace: true },
+            { label: i18n("Expiration"), value: [root.cardValue(item, "expMonth"), root.cardValue(item, "expYear")].filter(function(part) { return part && part.length > 0 }).join("/"), iconName: "view-calendar-symbolic" },
+            { label: i18n("Security Code"), value: root.cardValue(item, "code"), iconName: "password-show-on-symbolic", sensitive: true, monospace: true }
+        ].filter(function(field) { return field.value && field.value.length > 0 })
+    }
+
+    function identityPersonalFields(item) {
+        if (!item || !item.identity) {
+            return []
+        }
+        return [
+            { label: i18n("Name"), value: root.identityFullName(item), iconName: "user-symbolic" },
+            { label: i18n("Username"), value: root.identityValue(item, "username"), iconName: "user-symbolic" },
+            { label: i18n("Company"), value: root.identityValue(item, "company"), iconName: "office-building-symbolic" },
+            { label: i18n("Email"), value: root.identityValue(item, "email"), iconName: "mail-message-symbolic" },
+            { label: i18n("Phone"), value: root.identityValue(item, "phone"), iconName: "call-start-symbolic" }
+        ].filter(function(field) { return field.value && field.value.length > 0 })
+    }
+
+    function identitySensitiveFields(item) {
+        if (!item || !item.identity) {
+            return []
+        }
+        return [
+            { label: i18n("SSN"), value: root.identityValue(item, "ssn") },
+            { label: i18n("Passport Number"), value: root.identityValue(item, "passportNumber") },
+            { label: i18n("License Number"), value: root.identityValue(item, "licenseNumber") }
+        ].filter(function(field) { return field.value && field.value.length > 0 })
     }
 
     function totpClipboardValue(value) {
@@ -398,13 +496,7 @@ Kirigami.ApplicationWindow {
                                     height: Kirigami.Units.iconSizes.large
                                     source: {
                                         if (!root.selectedItem) return ""
-                                        switch (root.selectedItem.type) {
-                                        case 1: return "internet-services-symbolic"
-                                        case 2: return "view-pim-notes-symbolic"
-                                        case 3: return "credit-card-symbolic"
-                                        case 4: return "user-identity-symbolic"
-                                        default: return "dialog-password-symbolic"
-                                        }
+                                        return root.itemTypeIcon(root.selectedItem.type)
                                     }
                                     color: Kirigami.Theme.highlightColor
                                     isMask: true
@@ -454,13 +546,13 @@ Kirigami.ApplicationWindow {
                                         if (it.login && it.login.uris && it.login.uris.length > 0 && it.login.uris[0].uri) {
                                             return it.login.uris[0].uri
                                         }
-                                        switch (it.type) {
-                                        case 1: return i18n("Login")
-                                        case 2: return i18n("Secure Note")
-                                        case 3: return i18n("Card")
-                                        case 4: return i18n("Identity")
-                                        default: return ""
+                                        if (it.card && it.card.brand) {
+                                            return it.card.brand + (it.card.number ? " ••••" + String(it.card.number).slice(-4) : "")
                                         }
+                                        if (it.identity && it.identity.email) {
+                                            return it.identity.email
+                                        }
+                                        return root.itemTypeLabel(it.type)
                                     }
                                     color: Kirigami.Theme.disabledTextColor
                                     elide: Text.ElideRight
@@ -537,6 +629,106 @@ Kirigami.ApplicationWindow {
                                 label: i18nc("Website URL label", "URL %1", index + 1)
                                 value: modelData.uri || ""
                                 iconName: "globe-symbolic"
+                                onCopyRequested: (l, v) => root.copyValue(l, v)
+                            }
+                        }
+                    }
+
+                    // Card details card
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Card Details")
+                        visible: cardDetailsRepeater.count > 0
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: cardDetailsRepeater.count > 0
+
+                        Repeater {
+                            id: cardDetailsRepeater
+                            model: root.cardFields(root.selectedItem)
+
+                            VaultFieldDelegate {
+                                required property var modelData
+
+                                label: modelData.label
+                                value: modelData.value
+                                iconName: modelData.iconName || "credit-card-symbolic"
+                                sensitive: modelData.sensitive || false
+                                monospace: modelData.monospace || false
+                                onCopyRequested: (l, v) => root.copyValue(l, v)
+                            }
+                        }
+                    }
+
+                    // Identity details cards
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Identity")
+                        visible: identityDetailsRepeater.count > 0
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: identityDetailsRepeater.count > 0
+
+                        Repeater {
+                            id: identityDetailsRepeater
+                            model: root.identityPersonalFields(root.selectedItem)
+
+                            VaultFieldDelegate {
+                                required property var modelData
+
+                                label: modelData.label
+                                value: modelData.value
+                                iconName: modelData.iconName || "user-identity-symbolic"
+                                onCopyRequested: (l, v) => root.copyValue(l, v)
+                            }
+                        }
+                    }
+
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Address")
+                        visible: !!(root.identityAddress(root.selectedItem).length > 0)
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: !!(root.identityAddress(root.selectedItem).length > 0)
+
+                        VaultFieldDelegate {
+                            label: i18n("Address")
+                            value: root.identityAddress(root.selectedItem)
+                            iconName: "go-home-symbolic"
+                            wrapMode: TextEdit.Wrap
+                            onCopyRequested: (l, v) => root.copyValue(l, v)
+                        }
+                    }
+
+                    FormCard.FormHeader {
+                        Layout.fillWidth: true
+                        title: i18n("Identification")
+                        visible: identitySensitiveRepeater.count > 0
+                    }
+
+                    FormCard.FormCard {
+                        Layout.fillWidth: true
+                        visible: identitySensitiveRepeater.count > 0
+
+                        Repeater {
+                            id: identitySensitiveRepeater
+                            model: root.identitySensitiveFields(root.selectedItem)
+
+                            VaultFieldDelegate {
+                                required property var modelData
+
+                                label: modelData.label
+                                value: modelData.value
+                                iconName: "password-show-on-symbolic"
+                                sensitive: true
+                                monospace: true
                                 onCopyRequested: (l, v) => root.copyValue(l, v)
                             }
                         }

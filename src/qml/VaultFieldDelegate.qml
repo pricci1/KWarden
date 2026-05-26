@@ -14,6 +14,7 @@ FormCard.AbstractFormDelegate {
     property bool monospace: false
     property string iconName: ""
     property string emptyPlaceholder: "—"
+    property int wrapMode: TextEdit.NoWrap
 
     property bool reveal: false
 
@@ -62,7 +63,7 @@ FormCard.AbstractFormDelegate {
                 text: root.displayValue()
                 readOnly: true
                 selectByMouse: true
-                wrapMode: TextEdit.NoWrap
+                wrapMode: root.wrapMode
                 color: Kirigami.Theme.textColor
                 font.family: root.monospace ? "monospace" : Kirigami.Theme.defaultFont.family
                 font.pointSize: root.monospace ? Kirigami.Theme.defaultFont.pointSize + 1 : Kirigami.Theme.defaultFont.pointSize
