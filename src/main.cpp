@@ -352,11 +352,15 @@ private:
     void runBw(const QStringList &arguments, const QByteArray &stdinData, const QString &session, Callback callback)
     {
         const BwCommand command = bwCommand();
+        const bool allowInteraction = arguments.value(0) == QStringLiteral("unlock");
         auto *process = new QProcess(this);
         process->setProgram(command.program);
         process->setArguments(bwArguments(command, arguments, session));
 
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        if (!allowInteraction) {
+            environment.insert(QStringLiteral("BW_NOINTERACTION"), QStringLiteral("true"));
+        }
         if (!session.isEmpty()) {
             environment.insert(QStringLiteral("BW_SESSION"), session);
         }
@@ -956,6 +960,14 @@ private:
                 return;
             }
 
+            if (stdoutData.trimmed().isEmpty() && !stderrData.trimmed().isEmpty()) {
+                setItems({});
+                setState(QStringLiteral("error"));
+                setStatusText(errorMessage(i18n("Failed to load vault items"), stderrData));
+                setBusy(false);
+                return;
+            }
+
             QJsonParseError itemsParseError;
             const QJsonDocument itemsDocument = QJsonDocument::fromJson(stdoutData, &itemsParseError);
             if (!itemsDocument.isArray()) {
@@ -1294,7 +1306,7 @@ int main(int argc, char **argv)
     KLocalizedString::setApplicationDomain("kwarden");
     KAboutData about(QStringLiteral("kwarden"),
                      i18n("KWarden"),
-                     QStringLiteral("0.3.1"),
+                     QStringLiteral("0.3.2"),
                      i18n("KDE native frontend for Bitwarden CLI"),
                      KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(about);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(kwarden VERSION 0.3.1 LANGUAGES CXX)
+project(kwarden VERSION 0.3.2 LANGUAGES CXX)
 
 find_package(ECM 6.0 REQUIRED NO_MODULE)
 set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
