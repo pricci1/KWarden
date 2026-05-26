@@ -198,18 +198,18 @@ Kirigami.ApplicationWindow {
                 displayHint: Kirigami.DisplayHint.KeepVisible
             },
             Kirigami.Action {
-                text: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? i18n("Clear PIN") : i18n("Set PIN")
-                icon.name: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? "edit-clear-symbolic" : "lock-symbolic"
-                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
-                onTriggered: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? vaultProvider.clearPin() : setPinDialog.open()
-                displayHint: Kirigami.DisplayHint.KeepVisible
-            },
-            Kirigami.Action {
                 text: i18n("Lock")
                 icon.name: "system-lock-screen-symbolic"
                 enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
                 onTriggered: vaultProvider.lock()
                 displayHint: Kirigami.DisplayHint.KeepVisible
+            },
+            Kirigami.Action {
+                text: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? i18n("Clear PIN") : i18n("Set PIN")
+                icon.name: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? "edit-clear-symbolic" : "lock-symbolic"
+                enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
+                onTriggered: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? vaultProvider.clearPin() : setPinDialog.open()
+                displayHint: Kirigami.DisplayHint.AlwaysHide
             }
         ]
 
