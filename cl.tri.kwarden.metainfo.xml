@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.kwarden.KWarden</id>
+  <id>cl.tri.kwarden</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>KWarden</name>
@@ -8,7 +8,7 @@
   <description>
     <p>KWarden is a Kirigami desktop application for viewing Bitwarden vault items through the official Bitwarden CLI.</p>
   </description>
-  <launchable type="desktop-id">org.kwarden.KWarden.desktop</launchable>
+  <launchable type="desktop-id">cl.tri.kwarden.desktop</launchable>
   <categories>
     <category>Utility</category>
   </categories>

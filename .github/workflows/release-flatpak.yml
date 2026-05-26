@@ -1,0 +1,104 @@
+name: Release Flatpak
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  flatpak:
+    name: Build and publish Flatpak
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Validate release tag
+        id: release_tag
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping non-semver tag: $GITHUB_REF_NAME"
+          fi
+
+      - name: Checkout
+        if: steps.release_tag.outputs.valid == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install Flatpak tooling
+        if: steps.release_tag.outputs.valid == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder ostree
+          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Build Flatpak repo
+        if: steps.release_tag.outputs.valid == 'true'
+        run: |
+          flatpak-builder \
+            --force-clean \
+            --repo=flatpak-repo \
+            --default-branch=stable \
+            flatpak-build-dir \
+            cl.tri.kwarden.yml
+          flatpak build-update-repo --generate-static-deltas flatpak-repo
+
+      - name: Build release bundle
+        if: steps.release_tag.outputs.valid == 'true'
+        run: flatpak build-bundle flatpak-repo cl.tri.kwarden.flatpak cl.tri.kwarden stable
+
+      - name: Prepare GitHub Pages Flatpak repo
+        if: steps.release_tag.outputs.valid == 'true'
+        env:
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          mkdir -p public
+          cp -a flatpak-repo/. public/
+          cat > public/cl.tri.kwarden.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=KWarden
+          Url=${PAGES_URL}
+          Homepage=${{ github.server_url }}/${{ github.repository }}
+          Comment=KWarden Flatpak repository
+          Description=Flatpak repository for KWarden releases
+          GPGVerify=false
+          EOF
+          cat > public/index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>KWarden Flatpak Repository</title>
+          <h1>KWarden Flatpak Repository</h1>
+          <p>Install the remote with:</p>
+          <pre>flatpak remote-add --if-not-exists kwarden ${PAGES_URL}cl.tri.kwarden.flatpakrepo</pre>
+          <p>Then install KWarden with:</p>
+          <pre>flatpak install kwarden cl.tri.kwarden</pre>
+          EOF
+
+      - name: Upload GitHub Pages artifact
+        if: steps.release_tag.outputs.valid == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy GitHub Pages
+        if: steps.release_tag.outputs.valid == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Attach Flatpak bundle to GitHub release
+        if: steps.release_tag.outputs.valid == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cl.tri.kwarden.flatpak

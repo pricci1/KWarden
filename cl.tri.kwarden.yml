@@ -1,4 +1,4 @@
-app-id: org.kwarden.KWarden
+app-id: cl.tri.kwarden
 runtime: org.kde.Platform
 runtime-version: '6.10'
 sdk: org.kde.Sdk
@@ -17,7 +17,12 @@ modules:
       - type: dir
         path: .
         skip:
+          - .git
+          - .github
           - .flatpak-builder
           - build
           - build-*
+          - flatpak-build-dir
+          - flatpak-repo
+          - public
           - repo

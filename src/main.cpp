@@ -140,7 +140,7 @@ public:
     explicit TrayController(QWindow *window, QObject *parent = nullptr)
         : QObject(parent)
         , m_window(window)
-        , m_trayIcon(QIcon::fromTheme(QStringLiteral("org.kwarden.KWarden")), this)
+        , m_trayIcon(QIcon::fromTheme(QStringLiteral("cl.tri.kwarden")), this)
     {
         if (!m_window || !QSystemTrayIcon::isSystemTrayAvailable()) {
             return;
@@ -1162,7 +1162,7 @@ int quitAfterMs(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    QGuiApplication::setDesktopFileName(QStringLiteral("org.kwarden.KWarden"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("cl.tri.kwarden"));
 
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("kwarden"));

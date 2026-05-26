@@ -5,6 +5,7 @@ root := "/var/home/otto/Projects/kwarden"
 build-dir := root + "/build"
 flatpak-build-dir := "/tmp/kwarden-flatpak-build"
 flatpak-state-dir := "/tmp/kwarden-flatpak-state"
+flatpak-manifest := "cl.tri.kwarden.yml"
 
 # List available recipes
 _default:
@@ -28,18 +29,18 @@ run: build
 
 # Build the Flatpak version
 flatpak-build:
-    flatpak-builder --force-clean --state-dir={{flatpak-state-dir}} {{flatpak-build-dir}} org.kwarden.KWarden.yml
+    flatpak-builder --force-clean --state-dir={{flatpak-state-dir}} {{flatpak-build-dir}} {{flatpak-manifest}}
 
 # Build and smoke-run the Flatpak version
 flatpak-smoke: flatpak-build
-    flatpak-builder --run --env=QT_QPA_PLATFORM=offscreen {{flatpak-build-dir}} org.kwarden.KWarden.yml kwarden --quit-after-ms 250
+    flatpak-builder --run --env=QT_QPA_PLATFORM=offscreen {{flatpak-build-dir}} {{flatpak-manifest}} kwarden --quit-after-ms 250
 
 # Build and run the Flatpak version
 flatpak-run: flatpak-build
     flatpak-builder --run \
         --share=ipc --socket=wayland --socket=fallback-x11 --device=dri \
         --env=QT_QPA_PLATFORM=wayland \
-        {{flatpak-build-dir}} org.kwarden.KWarden.yml kwarden
+        {{flatpak-build-dir}} {{flatpak-manifest}} kwarden
 
 # Run development environment smoke tests
 dev-smoke:

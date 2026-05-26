@@ -13,7 +13,7 @@ find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n Kirigami)
 
 include(CTest)
 
-set(KWARDEN_APP_ID org.kwarden.KWarden)
+set(KWARDEN_APP_ID cl.tri.kwarden)
 
 if (COMMAND qt_policy)
     qt_policy(SET QTP0001 NEW)

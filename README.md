@@ -72,8 +72,17 @@ distrobox enter kde-dev -- bash -lc 'cmake --build /var/home/otto/Projects/kward
 To build and smoke-run the Flatpak version using the KDE runtime:
 
 ```sh
-flatpak-builder --force-clean --state-dir=/tmp/kwarden-flatpak-state /tmp/kwarden-flatpak-build org.kwarden.KWarden.yml
-flatpak-builder --run --env=QT_QPA_PLATFORM=offscreen /tmp/kwarden-flatpak-build org.kwarden.KWarden.yml kwarden --quit-after-ms 250
+flatpak-builder --force-clean --state-dir=/tmp/kwarden-flatpak-state /tmp/kwarden-flatpak-build cl.tri.kwarden.yml
+flatpak-builder --run --env=QT_QPA_PLATFORM=offscreen /tmp/kwarden-flatpak-build cl.tri.kwarden.yml kwarden --quit-after-ms 250
+```
+
+## Flatpak releases
+
+Tagged releases named `vX.Y.Z` publish a Flatpak repo to GitHub Pages for automatic updates. After the first release, install the remote from:
+
+```sh
+flatpak remote-add --if-not-exists kwarden https://OWNER.github.io/REPOSITORY/cl.tri.kwarden.flatpakrepo
+flatpak install kwarden cl.tri.kwarden
 ```
 
 For manual visual checks, launch the app normally. If capturing screenshots on KDE Wayland, use a delayed active-window Spectacle capture and close the test window afterward.
@@ -82,7 +91,7 @@ For manual visual checks, launch the app normally. If capturing screenshots on K
 
 ```text
 CMakeLists.txt       Build definition for the Kirigami app
-org.kwarden.KWarden.yml
+cl.tri.kwarden.yml
                      Flatpak Builder manifest for the app
 src/main.cpp         Application bootstrap, clipboard bridge, and bw CLI provider
 src/qml/Main.qml     Kirigami UI, search, unlock/lock state, copy actions
