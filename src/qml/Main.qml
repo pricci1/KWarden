@@ -17,6 +17,7 @@ Kirigami.ApplicationWindow {
     property string searchText: ""
     property int selectedIndex: 0
     property string actionStatusText: ""
+    property bool attemptedInitialUnlockPrompt: false
 
     readonly property var allItems: vaultProvider.items
     readonly property var filteredItems: allItems.filter(function(item) {
@@ -76,6 +77,55 @@ Kirigami.ApplicationWindow {
         vaultProvider.refresh()
     }
 
+    function openInitialUnlockPrompt() {
+        if (root.attemptedInitialUnlockPrompt || vaultProvider.busy) {
+            return
+        }
+
+        if (vaultProvider.state === "pinLocked") {
+            root.attemptedInitialUnlockPrompt = true
+            pinUnlockDialog.open()
+        } else if (vaultProvider.state === "locked") {
+            root.attemptedInitialUnlockPrompt = true
+            unlockDialog.open()
+        }
+    }
+
+    function focusSearchIfUnlocked() {
+        if (vaultProvider.state === "unlocked" && !vaultProvider.busy) {
+            searchField.forceActiveFocus()
+        }
+    }
+
+    Connections {
+        target: vaultProvider
+
+        function onBusyChanged() {
+            if (!vaultProvider.busy) {
+                root.openInitialUnlockPrompt()
+                root.focusSearchIfUnlocked()
+            }
+        }
+
+        function onStateChanged() {
+            if (vaultProvider.state === "locked" || vaultProvider.state === "pinLocked") {
+                Qt.callLater(root.openInitialUnlockPrompt)
+            } else if (vaultProvider.state === "unlocked") {
+                Qt.callLater(root.focusSearchIfUnlocked)
+            }
+        }
+    }
+
+    Connections {
+        target: keyboardShortcuts
+
+        function onFindRequested() {
+            if (!unlockDialog.opened && !pinUnlockDialog.opened && !setPinDialog.opened) {
+                searchField.forceActiveFocus()
+            }
+        }
+    }
+
     Shortcut {
         sequence: "Ctrl+U"
         onActivated: root.copyField("username")
@@ -93,6 +143,7 @@ Kirigami.ApplicationWindow {
 
     Shortcut {
         sequence: "Ctrl+F"
+        context: Qt.ApplicationShortcut
         onActivated: searchField.forceActiveFocus()
     }
 
@@ -190,6 +241,10 @@ Kirigami.ApplicationWindow {
                             root.searchText = text
                             root.selectedIndex = 0
                         }
+                        Keys.onTabPressed: function(event) {
+                            itemList.forceActiveFocus()
+                            event.accepted = true
+                        }
                         focusSequence: "Ctrl+F"
                     }
 
@@ -210,8 +265,15 @@ Kirigami.ApplicationWindow {
                             boundsBehavior: Flickable.StopAtBounds
                             spacing: 0
                             keyNavigationEnabled: true
+                            activeFocusOnTab: true
                             highlightFollowsCurrentItem: true
                             highlightMoveDuration: Kirigami.Units.shortDuration
+
+                            onCurrentIndexChanged: {
+                                if (activeFocus && currentIndex >= 0) {
+                                    root.selectedIndex = currentIndex
+                                }
+                            }
 
                             delegate: VaultListItemDelegate {
                                 required property var modelData

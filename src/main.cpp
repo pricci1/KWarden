@@ -10,6 +10,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QMenu>
 #include <QMessageAuthenticationCode>
 #include <QNetworkAccessManager>
@@ -51,6 +53,40 @@ public:
     Q_INVOKABLE void copy(const QString &value) const
     {
         QGuiApplication::clipboard()->setText(value);
+    }
+};
+
+class KeyboardShortcuts : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit KeyboardShortcuts(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+    }
+
+Q_SIGNALS:
+    void findRequested();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        Q_UNUSED(watched)
+
+        if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress) {
+            return false;
+        }
+
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const QKeyCombination keyCombination(keyEvent->modifiers() & ~Qt::KeypadModifier, Qt::Key(keyEvent->key()));
+        if (keyCombination.toCombined() == QKeySequence(QKeySequence::Find)[0].toCombined()) {
+            keyEvent->accept();
+            Q_EMIT findRequested();
+            return true;
+        }
+
+        return false;
     }
 };
 
@@ -1077,16 +1113,21 @@ int main(int argc, char **argv)
     KAboutData::setApplicationData(about);
 
     ClipboardBridge clipboardBridge;
+    KeyboardShortcuts keyboardShortcuts;
+    app.installEventFilter(&keyboardShortcuts);
     BwCliProvider vaultProvider;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("clipboardBridge"), &clipboardBridge);
+    engine.rootContext()->setContextProperty(QStringLiteral("keyboardShortcuts"), &keyboardShortcuts);
     engine.rootContext()->setContextProperty(QStringLiteral("vaultProvider"), &vaultProvider);
     engine.loadFromModule(QStringLiteral("org.kwarden"), QStringLiteral("Main"));
 
     if (engine.rootObjects().isEmpty()) {
         return 1;
     }
+
+    engine.rootObjects().constFirst()->installEventFilter(&keyboardShortcuts);
 
     TrayController trayController(qobject_cast<QWindow *>(engine.rootObjects().constFirst()), &app);
 
