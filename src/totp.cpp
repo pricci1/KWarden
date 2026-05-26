@@ -146,6 +146,25 @@ QString Totp::code(const TotpParameters &parameters, quint64 unixTimeSeconds)
     return QStringLiteral("%1").arg(binary % divisor, parameters.digits, 10, QLatin1Char('0'));
 }
 
+int Totp::secondsRemaining(const TotpParameters &parameters, quint64 unixTimeSeconds)
+{
+    if (parameters.period <= 0) {
+        return 0;
+    }
+
+    const int elapsed = int(unixTimeSeconds % quint64(parameters.period));
+    return parameters.period - elapsed;
+}
+
+int Totp::currentSecondsRemaining(const QString &value)
+{
+    const std::optional<TotpParameters> parameters = parse(value);
+    if (!parameters) {
+        return 0;
+    }
+    return secondsRemaining(*parameters, quint64(QDateTime::currentSecsSinceEpoch()));
+}
+
 QString Totp::currentCode(const QString &value)
 {
     const std::optional<TotpParameters> parameters = parse(value);

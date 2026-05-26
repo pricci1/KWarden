@@ -11,6 +11,7 @@ private Q_SLOTS:
     void parsesOtpauthDefaults();
     void parsesOtpauthOptions();
     void rejectsInvalidInput();
+    void calculatesSecondsRemaining();
     void groupsDisplayCode();
 };
 
@@ -59,6 +60,20 @@ void TotpTest::rejectsInvalidInput()
     QVERIFY(!Totp::parse(QStringLiteral("otpauth://totp/alice?secret=GEZDGNBVGY3TQOJQ&algorithm=MD5")).has_value());
     QVERIFY(!Totp::parse(QStringLiteral("otpauth://totp/alice?secret=GEZDGNBVGY3TQOJQ&digits=5")).has_value());
     QVERIFY(!Totp::parse(QStringLiteral("otpauth://totp/alice?secret=GEZDGNBVGY3TQOJQ&period=0")).has_value());
+}
+
+void TotpTest::calculatesSecondsRemaining()
+{
+    const std::optional<TotpParameters> parameters = Totp::parse(QStringLiteral("otpauth://totp/alice?secret=GEZDGNBVGY3TQOJQ&period=30"));
+    QVERIFY(parameters.has_value());
+    QCOMPARE(Totp::secondsRemaining(*parameters, 0), 30);
+    QCOMPARE(Totp::secondsRemaining(*parameters, 1), 29);
+    QCOMPARE(Totp::secondsRemaining(*parameters, 29), 1);
+    QCOMPARE(Totp::secondsRemaining(*parameters, 30), 30);
+
+    const std::optional<TotpParameters> longPeriod = Totp::parse(QStringLiteral("otpauth://totp/alice?secret=GEZDGNBVGY3TQOJQ&period=60"));
+    QVERIFY(longPeriod.has_value());
+    QCOMPARE(Totp::secondsRemaining(*longPeriod, 59), 1);
 }
 
 void TotpTest::groupsDisplayCode()

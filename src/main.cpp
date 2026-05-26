@@ -72,6 +72,11 @@ public:
     {
         return Totp::currentCode(value);
     }
+
+    Q_INVOKABLE int secondsRemaining(const QString &value) const
+    {
+        return Totp::currentSecondsRemaining(value);
+    }
 };
 
 class KeyboardShortcuts : public QObject

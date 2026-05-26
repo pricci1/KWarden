@@ -50,6 +50,10 @@ Kirigami.ApplicationWindow {
         return totpBridge.code(root.loginValue(item, "totp"))
     }
 
+    function totpSecondsRemaining(item, tick) {
+        return totpBridge.secondsRemaining(root.loginValue(item, "totp"))
+    }
+
     function copyValue(label, value) {
         if (!root.selectedItem) {
             root.actionStatusText = i18n("No vault item selected")
@@ -484,7 +488,7 @@ Kirigami.ApplicationWindow {
                         }
 
                         VaultFieldDelegate {
-                            label: i18n("TOTP")
+                            label: root.selectedItem ? i18np("TOTP · %1 second", "TOTP · %1 seconds", root.totpSecondsRemaining(root.selectedItem, root.totpTick)) : i18n("TOTP")
                             value: root.selectedItem ? root.totpValue(root.selectedItem, root.totpTick) : ""
                             iconName: "chronometer-symbolic"
                             monospace: true

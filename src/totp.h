@@ -18,6 +18,8 @@ class Totp
 public:
     static std::optional<TotpParameters> parse(const QString &value);
     static QString code(const TotpParameters &parameters, quint64 unixTimeSeconds);
+    static int secondsRemaining(const TotpParameters &parameters, quint64 unixTimeSeconds);
+    static int currentSecondsRemaining(const QString &value);
     static QString currentCode(const QString &value);
     static QString grouped(const QString &code);
 };
