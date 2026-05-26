@@ -13,10 +13,19 @@ KWarden expects `bw` to be installed and available in `PATH`. Login is still del
 - KWarden checks `bw status --raw` on startup and refresh.
 - If the vault is locked, KWarden unlocks with `bw unlock --raw` and then loads `bw list items`.
 
+By default KWarden uses direct one-shot `bw` process calls. To try the experimental managed `bw serve` backend, launch with:
+
+```sh
+KWARDEN_BW_BACKEND=serve ./build/bin/kwarden
+```
+
+The `serve` backend starts `bw serve` bound to `localhost` on a random local port, calls the local REST API for status/unlock/list/lock, and stops the child server when KWarden drops the active session or exits.
+
 ## Security model
 
 - The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.
 - The returned `BW_SESSION` value is kept only in KWarden process memory.
+- When `KWARDEN_BW_BACKEND=serve` is enabled, KWarden also keeps the managed `bw serve` process local to the app lifetime and binds it only to `localhost`.
 - Optional PIN unlock is ephemeral. It wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits.
 - When PIN unlock is enabled, Lock is a KWarden-local soft lock: it clears loaded items and the active session, but keeps the in-memory PIN-wrapped session so the PIN can unlock again. Without PIN unlock, Lock runs `bw lock`.
 - KWarden does not write the master password, PIN, or session key to KDE Wallet, settings, logs, or disk.

@@ -8,7 +8,7 @@ include(KDEInstallDirs)
 include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
 find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n Kirigami)
 
 set(KWARDEN_APP_ID org.kwarden.KWarden)
@@ -37,6 +37,7 @@ target_compile_features(kwarden PRIVATE cxx_std_20)
 target_link_libraries(kwarden PRIVATE
     Qt6::Core
     Qt6::Gui
+    Qt6::Network
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2

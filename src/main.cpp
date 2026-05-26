@@ -1,9 +1,14 @@
 #include <QClipboard>
+#include <QCoreApplication>
 #include <QGuiApplication>
+#include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageAuthenticationCode>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -11,7 +16,9 @@
 #include <QQmlContext>
 #include <QRandomGenerator>
 #include <QStandardPaths>
+#include <QTcpServer>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 
 #include <KAboutData>
@@ -20,6 +27,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 
 class ClipboardBridge : public QObject
 {
@@ -37,6 +45,386 @@ public:
     }
 };
 
+class BwStrategy : public QObject
+{
+    Q_OBJECT
+
+public:
+    using Callback = std::function<void(int, const QByteArray &, const QByteArray &)>;
+
+    explicit BwStrategy(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+    }
+
+    virtual void status(Callback callback) = 0;
+    virtual void unlock(const QString &masterPassword, Callback callback) = 0;
+    virtual void listItems(const QString &session, Callback callback) = 0;
+    virtual void lock(const QString &session, Callback callback) = 0;
+    virtual void clearSession() {}
+};
+
+class DirectBwStrategy : public BwStrategy
+{
+    Q_OBJECT
+
+public:
+    explicit DirectBwStrategy(QObject *parent = nullptr)
+        : BwStrategy(parent)
+    {
+    }
+
+    void status(Callback callback) override
+    {
+        runBw({QStringLiteral("status"), QStringLiteral("--raw")}, {}, {}, callback);
+    }
+
+    void unlock(const QString &masterPassword, Callback callback) override
+    {
+        runBw({QStringLiteral("unlock"), QStringLiteral("--raw")}, masterPassword.toUtf8(), {}, callback);
+    }
+
+    void listItems(const QString &session, Callback callback) override
+    {
+        runBw({QStringLiteral("list"), QStringLiteral("items")}, {}, session, callback);
+    }
+
+    void lock(const QString &session, Callback callback) override
+    {
+        runBw({QStringLiteral("lock")}, {}, session, callback);
+    }
+
+private:
+    void runBw(const QStringList &arguments, const QByteArray &stdinData, const QString &session, Callback callback)
+    {
+        auto *process = new QProcess(this);
+        process->setProgram(QStringLiteral("bw"));
+        process->setArguments(arguments);
+
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        if (!session.isEmpty()) {
+            environment.insert(QStringLiteral("BW_SESSION"), session);
+        }
+        process->setProcessEnvironment(environment);
+
+        connect(process, &QProcess::started, process, [process, stdinData]() {
+            if (!stdinData.isEmpty()) {
+                process->write(stdinData);
+                process->write("\n");
+            }
+            process->closeWriteChannel();
+        });
+
+        connect(process, &QProcess::finished, this, [process, callback](int exitCode, QProcess::ExitStatus) {
+            const QByteArray stdoutData = process->readAllStandardOutput();
+            const QByteArray stderrData = process->readAllStandardError();
+            process->deleteLater();
+            callback(exitCode, stdoutData, stderrData);
+        });
+
+        connect(process, &QProcess::errorOccurred, this, [process, callback](QProcess::ProcessError) {
+            const QByteArray stderrData = process->errorString().toUtf8();
+            process->deleteLater();
+            callback(-1, {}, stderrData);
+        });
+
+        process->start();
+    }
+};
+
+class ServeBwStrategy : public BwStrategy
+{
+    Q_OBJECT
+
+public:
+    explicit ServeBwStrategy(QObject *parent = nullptr)
+        : BwStrategy(parent)
+    {
+    }
+
+    ~ServeBwStrategy() override
+    {
+        stopServer();
+    }
+
+    void status(Callback callback) override
+    {
+        ensureServer([this, callback](const QByteArray &error) {
+            if (!error.isEmpty()) {
+                callback(-1, {}, error);
+                return;
+            }
+
+            get(QStringLiteral("/status"), [callback](int exitCode, const QByteArray &body, const QByteArray &stderrData) {
+                if (exitCode != 0) {
+                    callback(exitCode, {}, stderrData);
+                    return;
+                }
+
+                const QJsonObject data = responseData(body);
+                const QJsonObject statusObject = data.value(QStringLiteral("template")).toObject();
+                if (statusObject.isEmpty()) {
+                    callback(-1, {}, QByteArrayLiteral("Unexpected Bitwarden serve status response"));
+                    return;
+                }
+                callback(0, QJsonDocument(statusObject).toJson(QJsonDocument::Compact), {});
+            });
+        });
+    }
+
+    void unlock(const QString &masterPassword, Callback callback) override
+    {
+        ensureServer([this, masterPassword, callback](const QByteArray &error) {
+            if (!error.isEmpty()) {
+                callback(-1, {}, error);
+                return;
+            }
+
+            QJsonObject requestBody;
+            requestBody.insert(QStringLiteral("password"), masterPassword);
+            post(QStringLiteral("/unlock"), QJsonDocument(requestBody).toJson(QJsonDocument::Compact), [this, callback](int exitCode,
+                                                                                                                        const QByteArray &body,
+                                                                                                                        const QByteArray &stderrData) {
+                if (exitCode != 0) {
+                    callback(exitCode, {}, stderrData);
+                    return;
+                }
+
+                const QJsonObject data = responseData(body);
+                const QString session = data.value(QStringLiteral("raw")).toString().trimmed();
+                if (session.isEmpty()) {
+                    callback(-1, {}, QByteArrayLiteral("Bitwarden serve unlock response did not include a session"));
+                    return;
+                }
+
+                m_session = session;
+                callback(0, session.toUtf8(), {});
+            });
+        });
+    }
+
+    void listItems(const QString &session, Callback callback) override
+    {
+        if (!session.isEmpty() && session != m_session) {
+            m_session = session;
+            stopServer();
+        }
+
+        ensureServer([this, callback](const QByteArray &error) {
+            if (!error.isEmpty()) {
+                callback(-1, {}, error);
+                return;
+            }
+
+            get(QStringLiteral("/list/object/items"), [callback](int exitCode, const QByteArray &body, const QByteArray &stderrData) {
+                if (exitCode != 0) {
+                    callback(exitCode, {}, stderrData);
+                    return;
+                }
+
+                const QJsonObject data = responseData(body);
+                const QJsonArray items = data.value(QStringLiteral("data")).toArray();
+                callback(0, QJsonDocument(items).toJson(QJsonDocument::Compact), {});
+            });
+        });
+    }
+
+    void lock(const QString &session, Callback callback) override
+    {
+        if (!session.isEmpty() && session != m_session) {
+            m_session = session;
+            stopServer();
+        }
+
+        ensureServer([this, callback](const QByteArray &error) {
+            if (!error.isEmpty()) {
+                callback(-1, {}, error);
+                return;
+            }
+
+            post(QStringLiteral("/lock"), {}, [this, callback](int exitCode, const QByteArray &, const QByteArray &stderrData) {
+                if (exitCode == 0) {
+                    m_session.clear();
+                }
+                callback(exitCode, {}, stderrData);
+            });
+        });
+    }
+
+    void clearSession() override
+    {
+        m_session.clear();
+        stopServer();
+    }
+
+private:
+    using ServerCallback = std::function<void(const QByteArray &)>;
+
+    void ensureServer(ServerCallback callback)
+    {
+        if (m_server && m_server->state() != QProcess::NotRunning && m_port != 0) {
+            callback({});
+            return;
+        }
+
+        stopServer();
+
+        QTcpServer portServer;
+        if (!portServer.listen(QHostAddress::LocalHost, 0)) {
+            callback(portServer.errorString().toUtf8());
+            return;
+        }
+        m_port = portServer.serverPort();
+        portServer.close();
+
+        m_server = new QProcess(this);
+        m_server->setProgram(QStringLiteral("bw"));
+        m_server->setArguments({QStringLiteral("serve"), QStringLiteral("--hostname"), QStringLiteral("localhost"), QStringLiteral("--port"), QString::number(m_port)});
+
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        if (!m_session.isEmpty()) {
+            environment.insert(QStringLiteral("BW_SESSION"), m_session);
+        }
+        m_server->setProcessEnvironment(environment);
+
+        connect(m_server, &QProcess::finished, this, [this](int, QProcess::ExitStatus) {
+            if (m_server) {
+                m_server->deleteLater();
+                m_server = nullptr;
+            }
+            m_port = 0;
+        });
+
+        connect(m_server, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+            if (m_server) {
+                m_lastServerError = m_server->errorString().toUtf8();
+            }
+        });
+
+        m_lastServerError.clear();
+        m_server->start();
+        waitUntilReady(std::move(callback), 0);
+    }
+
+    void waitUntilReady(ServerCallback callback, int attempt)
+    {
+        if (!m_server || m_server->state() == QProcess::NotRunning) {
+            QByteArray error = m_lastServerError;
+            if (error.isEmpty()) {
+                error = QByteArrayLiteral("Bitwarden serve exited before becoming ready");
+            }
+            callback(error);
+            return;
+        }
+
+        get(QStringLiteral("/status"), [this, callback = std::move(callback), attempt](int exitCode, const QByteArray &, const QByteArray &) mutable {
+            if (exitCode == 0) {
+                callback({});
+                return;
+            }
+
+            if (attempt >= 50) {
+                callback(QByteArrayLiteral("Timed out waiting for Bitwarden serve to start"));
+                return;
+            }
+
+            QTimer::singleShot(100, this, [this, callback = std::move(callback), attempt]() mutable {
+                waitUntilReady(std::move(callback), attempt + 1);
+            });
+        });
+    }
+
+    void get(const QString &path, Callback callback)
+    {
+        request(QByteArrayLiteral("GET"), path, {}, std::move(callback));
+    }
+
+    void post(const QString &path, const QByteArray &body, Callback callback)
+    {
+        request(QByteArrayLiteral("POST"), path, body, std::move(callback));
+    }
+
+    void request(const QByteArray &method, const QString &path, const QByteArray &body, Callback callback)
+    {
+        QUrl url;
+        url.setScheme(QStringLiteral("http"));
+        url.setHost(QStringLiteral("localhost"));
+        url.setPort(m_port);
+        url.setPath(path);
+
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+
+        QNetworkReply *reply = nullptr;
+        if (method == QByteArrayLiteral("POST")) {
+            reply = m_network.post(request, body);
+        } else {
+            reply = m_network.get(request);
+        }
+
+        connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
+            const QByteArray responseBody = reply->readAll();
+            const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool ok = reply->error() == QNetworkReply::NoError && statusCode >= 200 && statusCode < 300;
+            const QByteArray error = ok ? QByteArray{} : serveErrorMessage(responseBody, reply->errorString().toUtf8());
+            reply->deleteLater();
+            callback(ok ? 0 : -1, ok ? responseBody : QByteArray{}, error);
+        });
+    }
+
+    static QJsonObject responseData(const QByteArray &body)
+    {
+        const QJsonObject response = QJsonDocument::fromJson(body).object();
+        return response.value(QStringLiteral("data")).toObject();
+    }
+
+    static QByteArray serveErrorMessage(const QByteArray &body, const QByteArray &fallback)
+    {
+        const QJsonObject response = QJsonDocument::fromJson(body).object();
+        const QString topLevelMessage = response.value(QStringLiteral("message")).toString();
+        if (!topLevelMessage.isEmpty()) {
+            return topLevelMessage.toUtf8();
+        }
+
+        const QJsonObject data = responseData(body);
+        const QString message = data.value(QStringLiteral("message")).toString();
+        if (!message.isEmpty()) {
+            return message.toUtf8();
+        }
+        const QString title = data.value(QStringLiteral("title")).toString();
+        if (!title.isEmpty()) {
+            return title.toUtf8();
+        }
+        return fallback;
+    }
+
+    void stopServer()
+    {
+        if (!m_server) {
+            m_port = 0;
+            return;
+        }
+
+        disconnect(m_server, nullptr, this, nullptr);
+        if (m_server->state() != QProcess::NotRunning) {
+            m_server->terminate();
+            if (!m_server->waitForFinished(1000)) {
+                m_server->kill();
+                m_server->waitForFinished(1000);
+            }
+        }
+        m_server->deleteLater();
+        m_server = nullptr;
+        m_port = 0;
+    }
+
+    QNetworkAccessManager m_network;
+    QProcess *m_server = nullptr;
+    quint16 m_port = 0;
+    QString m_session;
+    QByteArray m_lastServerError;
+};
+
 class BwCliProvider : public QObject
 {
     Q_OBJECT
@@ -51,6 +439,12 @@ public:
     explicit BwCliProvider(QObject *parent = nullptr)
         : QObject(parent)
     {
+        const QString backend = QString::fromLocal8Bit(qgetenv("KWARDEN_BW_BACKEND")).toLower();
+        if (backend == QStringLiteral("serve")) {
+            m_backend = std::make_unique<ServeBwStrategy>(this);
+        } else {
+            m_backend = std::make_unique<DirectBwStrategy>(this);
+        }
     }
 
     QVariantList items() const
@@ -101,11 +495,13 @@ public:
             return;
         }
 
-        runBw({QStringLiteral("status"), QStringLiteral("--raw")}, {}, false, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+        setBusy(true);
+        m_backend->status([this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
             if (exitCode != 0) {
                 setItems({});
                 setState(QStringLiteral("error"));
                 setStatusText(errorMessage(i18n("Failed to read Bitwarden CLI status"), stderrData));
+                setBusy(false);
                 return;
             }
 
@@ -121,15 +517,18 @@ public:
                 setItems({});
                 setState(QStringLiteral("locked"));
                 setStatusText(i18n("Vault locked. Enter your master password to unlock."));
+                setBusy(false);
             } else if (status == QStringLiteral("unauthenticated")) {
                 setItems({});
                 clearSession();
                 setState(QStringLiteral("unauthenticated"));
                 setStatusText(i18n("Not logged in. Run ‘bw login’ in a terminal, then refresh."));
+                setBusy(false);
             } else {
                 setItems({});
                 setState(QStringLiteral("error"));
                 setStatusText(i18n("Unexpected Bitwarden CLI status response"));
+                setBusy(false);
             }
         });
     }
@@ -140,12 +539,14 @@ public:
             return;
         }
 
-        runBw({QStringLiteral("unlock"), QStringLiteral("--raw")}, masterPassword.toUtf8(), false, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+        setBusy(true);
+        m_backend->unlock(masterPassword, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
             if (exitCode != 0) {
                 clearSession();
                 setItems({});
                 setState(QStringLiteral("locked"));
                 setStatusText(errorMessage(i18n("Failed to unlock vault"), stderrData));
+                setBusy(false);
                 return;
             }
 
@@ -186,6 +587,7 @@ public:
         m_session = QString::fromUtf8(session);
         setState(QStringLiteral("unlocked"));
         setStatusText(i18n("Vault unlocked with PIN"));
+        setBusy(true);
         loadItems();
     }
 
@@ -229,12 +631,14 @@ public:
             return;
         }
 
-        runBw({QStringLiteral("lock")}, {}, true, [this](int, const QByteArray &, const QByteArray &) {
+        setBusy(true);
+        m_backend->lock(m_session, [this](int, const QByteArray &, const QByteArray &) {
             clearSession();
             clearPinState();
             setItems({});
             setState(QStringLiteral("locked"));
             setStatusText(i18n("Vault locked"));
+            setBusy(false);
         });
     }
 
@@ -247,16 +651,16 @@ Q_SIGNALS:
     void pinSetChanged();
 
 private:
-    using ProcessCallback = std::function<void(int, const QByteArray &, const QByteArray &)>;
     static constexpr int PinKdfIterations = 120000;
 
     void loadItems()
     {
-        runBw({QStringLiteral("list"), QStringLiteral("items")}, {}, true, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
+        m_backend->listItems(m_session, [this](int exitCode, const QByteArray &stdoutData, const QByteArray &stderrData) {
             if (exitCode != 0) {
                 setItems({});
                 setState(QStringLiteral("error"));
                 setStatusText(errorMessage(i18n("Failed to load vault items"), stderrData));
+                setBusy(false);
                 return;
             }
 
@@ -265,6 +669,7 @@ private:
                 setItems({});
                 setState(QStringLiteral("error"));
                 setStatusText(i18n("Unexpected Bitwarden CLI item response"));
+                setBusy(false);
                 return;
             }
 
@@ -272,47 +677,8 @@ private:
             setItems(items);
             setState(QStringLiteral("unlocked"));
             setStatusText(i18np("Loaded %1 vault item", "Loaded %1 vault items", items.size()));
-        });
-    }
-
-    void runBw(const QStringList &arguments, const QByteArray &stdinData, bool withSession, ProcessCallback callback)
-    {
-        setBusy(true);
-
-        auto *process = new QProcess(this);
-        process->setProgram(QStringLiteral("bw"));
-        process->setArguments(arguments);
-
-        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-        if (withSession && !m_session.isEmpty()) {
-            environment.insert(QStringLiteral("BW_SESSION"), m_session);
-        }
-        process->setProcessEnvironment(environment);
-
-        connect(process, &QProcess::started, process, [process, stdinData]() {
-            if (!stdinData.isEmpty()) {
-                process->write(stdinData);
-                process->write("\n");
-            }
-            process->closeWriteChannel();
-        });
-
-        connect(process, &QProcess::finished, this, [this, process, callback](int exitCode, QProcess::ExitStatus) {
-            const QByteArray stdoutData = process->readAllStandardOutput();
-            const QByteArray stderrData = process->readAllStandardError();
-            process->deleteLater();
             setBusy(false);
-            callback(exitCode, stdoutData, stderrData);
         });
-
-        connect(process, &QProcess::errorOccurred, this, [this, process, callback](QProcess::ProcessError) {
-            const QByteArray stderrData = process->errorString().toUtf8();
-            process->deleteLater();
-            setBusy(false);
-            callback(-1, {}, stderrData);
-        });
-
-        process->start();
     }
 
     static QString errorMessage(const QString &prefix, const QByteArray &stderrData)
@@ -327,6 +693,9 @@ private:
     void clearSession()
     {
         m_session.clear();
+        if (m_backend) {
+            m_backend->clearSession();
+        }
     }
 
     void clearPinState()
@@ -475,6 +844,7 @@ private:
         Q_EMIT busyChanged();
     }
 
+    std::unique_ptr<BwStrategy> m_backend;
     QVariantList m_items;
     QString m_state = QStringLiteral("loading");
     QString m_statusText = i18n("Checking Bitwarden CLI status…");
