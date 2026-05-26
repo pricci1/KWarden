@@ -26,7 +26,8 @@ The `serve` backend starts `bw serve` bound to `localhost` on a random local por
 - The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.
 - The returned `BW_SESSION` value is kept only in KWarden process memory.
 - When `KWARDEN_BW_BACKEND=serve` is enabled, KWarden also keeps the managed `bw serve` process local to the app lifetime and binds it only to `localhost`.
-- Optional PIN unlock wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits. KWarden can persist the id of a selected vault item and, after a future master-password unlock, use that item’s password to recreate the in-memory PIN wrapper automatically.
+- Clipboard copies are marked with KDE's `x-kde-passwordManagerHint=secret` hint so Plasma's clipboard history can skip them, and KWarden clears the clipboard after 45 seconds if the copied value is still present.
+- Optional PIN unlock wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits. PINs must be at least 6 characters, or 8 digits for numeric-only PINs. KWarden can persist the id of a selected vault item and, after a future master-password unlock, use that item’s password to recreate the in-memory PIN wrapper automatically.
 - When PIN unlock is enabled, Lock is a KWarden-local soft lock: it clears loaded items and the active session, but keeps the in-memory PIN-wrapped session so the PIN can unlock again. Without PIN unlock, Lock runs `bw lock`.
 - KWarden does not write the master password, PIN/password value, or session key to KDE Wallet, settings, logs, or disk. Only the configured PIN source item id is stored in the app’s settings.
 - Quitting the app drops KWarden's in-memory session key and any PIN-wrapped session.
