@@ -13,6 +13,7 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMenu>
+#include <QMimeData>
 #include <QMessageAuthenticationCode>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -64,7 +65,10 @@ public:
     Q_INVOKABLE void copy(const QString &value)
     {
         m_lastCopiedText = value;
-        QGuiApplication::clipboard()->setText(value);
+        auto *mimeData = new QMimeData;
+        mimeData->setText(value);
+        mimeData->setData(QStringLiteral("x-kde-passwordManagerHint"), QByteArrayLiteral("secret"));
+        QGuiApplication::clipboard()->setMimeData(mimeData);
         m_clearTimer.start();
     }
 
