@@ -52,9 +52,15 @@ public:
     {
     }
 
-    Q_INVOKABLE void copy(const QString &value) const
+    Q_INVOKABLE void copy(const QString &value)
     {
         QGuiApplication::clipboard()->setText(value);
+        QTimer::singleShot(45000, this, [value]() {
+            QClipboard *clipboard = QGuiApplication::clipboard();
+            if (clipboard->text() == value) {
+                clipboard->clear();
+            }
+        });
     }
 };
 
@@ -808,7 +814,9 @@ Q_SIGNALS:
     void pinSourceItemIdChanged();
 
 private:
-    static constexpr int PinKdfIterations = 120000;
+    static constexpr int PinKdfIterations = 600000;
+    static constexpr int MinimumPinLength = 6;
+    static constexpr int MinimumNumericPinLength = 8;
 
     void loadItems()
     {
@@ -896,8 +904,16 @@ private:
 
     bool setPinFromPassword(const QString &pin, const QString &successMessage)
     {
-        if (pin.size() < 4) {
-            setStatusText(i18n("PIN must be at least 4 characters"));
+        const bool numericPin = std::all_of(pin.cbegin(), pin.cend(), [](const QChar character) {
+            return character.isDigit();
+        });
+        if (numericPin && pin.size() < MinimumNumericPinLength) {
+            setStatusText(i18n("Numeric PINs must be at least 8 digits"));
+            return false;
+        }
+
+        if (pin.size() < MinimumPinLength) {
+            setStatusText(i18n("PIN must be at least 6 characters"));
             return false;
         }
 
@@ -964,6 +980,18 @@ private:
     static QByteArray hmacSha256(const QByteArray &key, const QByteArray &message)
     {
         return QMessageAuthenticationCode::hash(message, key, QCryptographicHash::Sha256);
+    }
+
+    static bool constantTimeEquals(const QByteArray &left, const QByteArray &right)
+    {
+        qsizetype difference = left.size() ^ right.size();
+        const qsizetype comparisonSize = std::max(left.size(), right.size());
+        for (qsizetype i = 0; i < comparisonSize; ++i) {
+            const uchar leftByte = i < left.size() ? uchar(left[i]) : 0;
+            const uchar rightByte = i < right.size() ? uchar(right[i]) : 0;
+            difference |= leftByte ^ rightByte;
+        }
+        return difference == 0;
     }
 
     static QByteArray pbkdf2Sha256(const QByteArray &password, const QByteArray &salt, int iterations, qsizetype outputSize)
@@ -1034,7 +1062,7 @@ private:
         const QByteArray encryptionKey = keys.first(32);
         const QByteArray authenticationKey = keys.sliced(32, 32);
         const QByteArray verifier = hmacSha256(authenticationKey, m_pinNonce + m_wrappedSession);
-        if (verifier != m_pinVerifier) {
+        if (!constantTimeEquals(verifier, m_pinVerifier)) {
             return {};
         }
         return xorWithHmacStream(encryptionKey, m_pinNonce, m_wrappedSession);
