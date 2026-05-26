@@ -50,18 +50,27 @@ public:
     explicit ClipboardBridge(QObject *parent = nullptr)
         : QObject(parent)
     {
+        m_clearTimer.setSingleShot(true);
+        m_clearTimer.setInterval(45000);
+        connect(&m_clearTimer, &QTimer::timeout, this, [this]() {
+            QClipboard *clipboard = QGuiApplication::clipboard();
+            if (clipboard->text() == m_lastCopiedText) {
+                clipboard->clear();
+            }
+            m_lastCopiedText.clear();
+        });
     }
 
     Q_INVOKABLE void copy(const QString &value)
     {
+        m_lastCopiedText = value;
         QGuiApplication::clipboard()->setText(value);
-        QTimer::singleShot(45000, this, [value]() {
-            QClipboard *clipboard = QGuiApplication::clipboard();
-            if (clipboard->text() == value) {
-                clipboard->clear();
-            }
-        });
+        m_clearTimer.start();
     }
+
+private:
+    QString m_lastCopiedText;
+    QTimer m_clearTimer;
 };
 
 class TotpBridge : public QObject
