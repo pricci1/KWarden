@@ -23,7 +23,8 @@ KWarden is a KDE-native Kirigami/QML frontend for Bitwarden's official `bw` CLI.
 - Mock data should continue to resemble official Bitwarden CLI JSON shapes (`object: "list"`, `object: "item"`, `login`, `fields`, etc.).
 - TOTP may be visually grouped with spaces, but clipboard copies should remove spaces.
 - Prefer small, focused changes and verify with the narrowest build/smoke check that gives confidence.
-
+- When appropiate, update the README. But mind we don't want it to become too verbose.
+ 
 ## Screenshots
 
 When taking KDE Wayland screenshots, use delayed Spectacle active-window capture, ask the user to keep KWarden focused during the countdown, verify the file was written, and close test KWarden windows afterward.
