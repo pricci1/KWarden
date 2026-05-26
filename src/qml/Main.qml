@@ -97,6 +97,15 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    function moveItemSelection(delta) {
+        if (itemList.count === 0) {
+            return
+        }
+
+        root.selectedIndex = Math.max(0, Math.min(itemList.count - 1, root.selectedIndex + delta))
+        itemList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
+    }
+
     Connections {
         target: vaultProvider
 
@@ -243,6 +252,14 @@ Kirigami.ApplicationWindow {
                         }
                         Keys.onTabPressed: function(event) {
                             itemList.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onUpPressed: function(event) {
+                            root.moveItemSelection(-1)
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            root.moveItemSelection(1)
                             event.accepted = true
                         }
                         focusSequence: "Ctrl+F"
