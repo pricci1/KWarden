@@ -21,6 +21,8 @@ KWARDEN_BW_BACKEND=serve ./build/bin/kwarden
 
 The `serve` backend starts `bw serve` bound to `localhost` on a random local port, calls the local REST API for status/unlock/list/lock, and stops the child server when KWarden drops the active session or exits.
 
+If KWarden reports an unexpected Bitwarden CLI response, launch it with `KWARDEN_BW_DEBUG_LOG=/path/to/kwarden-bw.log` to append the raw `bw` stdout/stderr and parse details to that file. Only enable this temporarily and treat the file as sensitive, because item responses can contain vault data.
+
 ## Security model
 
 - The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.

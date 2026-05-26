@@ -3,6 +3,8 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDebug>
 #include <QEvent>
 #include <QFile>
 #include <QGuiApplication>
@@ -84,6 +86,62 @@ QStringList bwArguments(const BwCommand &command, const QStringList &arguments, 
         commandArguments.insert(0, QStringLiteral("--env=BW_SESSION=%1").arg(session));
     }
     return commandArguments + arguments;
+}
+
+QString bwDebugLogPath()
+{
+    return QString::fromLocal8Bit(qgetenv("KWARDEN_BW_DEBUG_LOG")).trimmed();
+}
+
+QString jsonDocumentKind(const QJsonDocument &document)
+{
+    if (document.isArray()) {
+        return QStringLiteral("array");
+    }
+    if (document.isObject()) {
+        return QStringLiteral("object");
+    }
+    if (document.isNull()) {
+        return QStringLiteral("null");
+    }
+    return QStringLiteral("unknown");
+}
+
+bool writeBwDebugLog(const QString &context, const QString &detail, const QByteArray &stdoutData, const QByteArray &stderrData)
+{
+    const QString path = bwDebugLogPath();
+    if (path.isEmpty()) {
+        qWarning().noquote() << context << detail << QStringLiteral("Set KWARDEN_BW_DEBUG_LOG=/path/to/kwarden-bw.log to capture the raw response.");
+        return false;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        qWarning().noquote() << context << detail << QStringLiteral("Could not write Bitwarden debug log to %1: %2").arg(path, file.errorString());
+        return false;
+    }
+
+    file.write("==== KWarden Bitwarden CLI debug ====" "\n");
+    file.write("time_utc: ");
+    file.write(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8());
+    file.write("\ncontext: ");
+    file.write(context.toUtf8());
+    file.write("\ndetail: ");
+    file.write(detail.toUtf8());
+    file.write("\nstdout:\n");
+    file.write(stdoutData);
+    if (!stdoutData.endsWith('\n')) {
+        file.write("\n");
+    }
+    file.write("stderr:\n");
+    file.write(stderrData);
+    if (!stderrData.endsWith('\n')) {
+        file.write("\n");
+    }
+    file.write("\n");
+
+    qWarning().noquote() << context << detail << QStringLiteral("Raw response written to %1").arg(path);
+    return true;
 }
 
 class ClipboardBridge : public QObject
@@ -713,7 +771,8 @@ public:
                 return;
             }
 
-            const QJsonDocument statusDocument = QJsonDocument::fromJson(stdoutData);
+            QJsonParseError statusParseError;
+            const QJsonDocument statusDocument = QJsonDocument::fromJson(stdoutData, &statusParseError);
             const QJsonObject statusObject = statusDocument.object();
             const QString status = statusObject.value(QStringLiteral("status")).toString();
             setUserEmail(statusObject.value(QStringLiteral("userEmail")).toString());
@@ -735,7 +794,15 @@ public:
             } else {
                 setItems({});
                 setState(QStringLiteral("error"));
-                setStatusText(i18n("Unexpected Bitwarden CLI status response"));
+                QString detail;
+                if (statusParseError.error != QJsonParseError::NoError) {
+                    detail = i18n("JSON parse error at offset %1: %2", statusParseError.offset, statusParseError.errorString());
+                } else {
+                    detail = i18n("Expected status object, got JSON %1", jsonDocumentKind(statusDocument));
+                }
+                const bool wroteDebugLog = writeBwDebugLog(QStringLiteral("Unexpected Bitwarden CLI status response"), detail, stdoutData, stderrData);
+                setStatusText(wroteDebugLog ? i18n("Unexpected Bitwarden CLI status response. Debug details were written to %1", bwDebugLogPath())
+                                            : i18n("Unexpected Bitwarden CLI status response"));
                 setBusy(false);
             }
         });
@@ -889,11 +956,20 @@ private:
                 return;
             }
 
-            const QJsonDocument itemsDocument = QJsonDocument::fromJson(stdoutData);
+            QJsonParseError itemsParseError;
+            const QJsonDocument itemsDocument = QJsonDocument::fromJson(stdoutData, &itemsParseError);
             if (!itemsDocument.isArray()) {
                 setItems({});
                 setState(QStringLiteral("error"));
-                setStatusText(i18n("Unexpected Bitwarden CLI item response"));
+                QString detail;
+                if (itemsParseError.error != QJsonParseError::NoError) {
+                    detail = i18n("JSON parse error at offset %1: %2", itemsParseError.offset, itemsParseError.errorString());
+                } else {
+                    detail = i18n("Expected item array, got JSON %1", jsonDocumentKind(itemsDocument));
+                }
+                const bool wroteDebugLog = writeBwDebugLog(QStringLiteral("Unexpected Bitwarden CLI item response"), detail, stdoutData, stderrData);
+                setStatusText(wroteDebugLog ? i18n("Unexpected Bitwarden CLI item response. Debug details were written to %1", bwDebugLogPath())
+                                            : i18n("Unexpected Bitwarden CLI item response"));
                 setBusy(false);
                 return;
             }
@@ -1218,7 +1294,7 @@ int main(int argc, char **argv)
     KLocalizedString::setApplicationDomain("kwarden");
     KAboutData about(QStringLiteral("kwarden"),
                      i18n("KWarden"),
-                     QStringLiteral("0.1.0"),
+                     QStringLiteral("0.3.1"),
                      i18n("KDE native frontend for Bitwarden CLI"),
                      KAboutLicense::GPL_V3);
     KAboutData::setApplicationData(about);
