@@ -716,6 +716,7 @@ Kirigami.ApplicationWindow {
             placeholderText: i18n("Master password")
             echoMode: TextInput.Password
             enabled: !vaultProvider.busy
+            inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
             onAccepted: unlockDialog.accept()
         }
     }
@@ -770,8 +771,17 @@ Kirigami.ApplicationWindow {
 
         onOpened: newPinField.forceActiveFocus()
         onAccepted: {
-            if (newPinField.text.length < 4 || newPinField.text !== confirmPinField.text) {
-                root.actionStatusText = i18n("PINs must match and be at least 4 characters")
+            const numericPin = /^[0-9]+$/.test(newPinField.text)
+            if (newPinField.text !== confirmPinField.text) {
+                root.actionStatusText = i18n("PINs must match")
+                newPinField.text = ""
+                confirmPinField.text = ""
+            } else if (numericPin && newPinField.text.length < 8) {
+                root.actionStatusText = i18n("Numeric PINs must be at least 8 digits")
+                newPinField.text = ""
+                confirmPinField.text = ""
+            } else if (newPinField.text.length < 6) {
+                root.actionStatusText = i18n("PIN must be at least 6 characters")
                 newPinField.text = ""
                 confirmPinField.text = ""
             } else {
