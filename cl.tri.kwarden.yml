@@ -8,6 +8,7 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+  - --talk-name=org.freedesktop.Flatpak
 modules:
   - name: kwarden
     buildsystem: cmake-ninja

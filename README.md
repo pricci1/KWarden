@@ -7,7 +7,7 @@ It is currently a Kirigami/QML desktop application backed by real `bw` process c
 
 This project is in early development. The UI can load vault data through the official Bitwarden CLI.
 
-KWarden expects `bw` to be installed and available in `PATH`. Login is still delegated to the CLI:
+KWarden expects `bw` to be installed and available in `PATH`. If it is not in `PATH`, set `KW_BW_BIN` to the `bw` executable path. In the Flatpak build, `KW_BW_BIN` runs through `flatpak-spawn --host`, so it can point at a host-installed `bw`. Login is still delegated to the CLI:
 
 - Run `bw login` in a terminal if the CLI is unauthenticated.
 - KWarden checks `bw status --raw` on startup and refresh.

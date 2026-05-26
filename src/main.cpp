@@ -4,6 +4,7 @@
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QEvent>
+#include <QFile>
 #include <QGuiApplication>
 #include <QHostAddress>
 #include <QIcon>
@@ -42,6 +43,48 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+
+struct BwCommand
+{
+    QString program;
+    QStringList argumentsPrefix;
+    bool runsOnHost = false;
+};
+
+bool runningInFlatpak()
+{
+    return QFile::exists(QStringLiteral("/.flatpak-info"));
+}
+
+BwCommand bwCommand()
+{
+    if (!QStandardPaths::findExecutable(QStringLiteral("bw")).isEmpty()) {
+        return {QStringLiteral("bw"), {}};
+    }
+
+    const QString configuredProgram = QString::fromLocal8Bit(qgetenv("KW_BW_BIN")).trimmed();
+    if (!configuredProgram.isEmpty() && !QStandardPaths::findExecutable(configuredProgram).isEmpty()) {
+        return {configuredProgram, {}};
+    }
+
+    if (!configuredProgram.isEmpty() && runningInFlatpak()) {
+        const QString flatpakSpawn = QStandardPaths::findExecutable(QStringLiteral("flatpak-spawn"));
+        if (!flatpakSpawn.isEmpty()) {
+            return {flatpakSpawn, {QStringLiteral("--host"), configuredProgram}, true};
+        }
+    }
+
+    return {};
+}
+
+QStringList bwArguments(const BwCommand &command, const QStringList &arguments, const QString &session)
+{
+    QStringList commandArguments = command.argumentsPrefix;
+    if (command.runsOnHost && !session.isEmpty()) {
+        commandArguments.insert(0, QStringLiteral("--env=BW_SESSION=%1").arg(session));
+    }
+    return commandArguments + arguments;
+}
 
 class ClipboardBridge : public QObject
 {
@@ -250,9 +293,10 @@ public:
 private:
     void runBw(const QStringList &arguments, const QByteArray &stdinData, const QString &session, Callback callback)
     {
+        const BwCommand command = bwCommand();
         auto *process = new QProcess(this);
-        process->setProgram(QStringLiteral("bw"));
-        process->setArguments(arguments);
+        process->setProgram(command.program);
+        process->setArguments(bwArguments(command, arguments, session));
 
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
         if (!session.isEmpty()) {
@@ -430,9 +474,12 @@ private:
         m_port = portServer.serverPort();
         portServer.close();
 
+        const BwCommand command = bwCommand();
         m_server = new QProcess(this);
-        m_server->setProgram(QStringLiteral("bw"));
-        m_server->setArguments({QStringLiteral("serve"), QStringLiteral("--hostname"), QStringLiteral("localhost"), QStringLiteral("--port"), QString::number(m_port)});
+        m_server->setProgram(command.program);
+        m_server->setArguments(bwArguments(command,
+                                          {QStringLiteral("serve"), QStringLiteral("--hostname"), QStringLiteral("localhost"), QStringLiteral("--port"), QString::number(m_port)},
+                                          m_session));
 
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
         if (!m_session.isEmpty()) {
@@ -649,10 +696,10 @@ public:
             return;
         }
 
-        if (QStandardPaths::findExecutable(QStringLiteral("bw")).isEmpty()) {
+        if (bwCommand().program.isEmpty()) {
             setItems({});
             setState(QStringLiteral("missing"));
-            setStatusText(i18n("Bitwarden CLI (bw) was not found in PATH"));
+            setStatusText(i18n("Bitwarden CLI (bw) was not found in PATH or KW_BW_BIN"));
             return;
         }
 
