@@ -1,10 +1,16 @@
+#include <QAction>
+#include <QApplication>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QGuiApplication>
 #include <QHostAddress>
+#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMenu>
 #include <QMessageAuthenticationCode>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -17,10 +23,12 @@
 #include <QRandomGenerator>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSystemTrayIcon>
 #include <QTcpServer>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <QWindow>
 
 #include <KAboutData>
 #include <KLocalizedContext>
@@ -44,6 +52,72 @@ public:
     {
         QGuiApplication::clipboard()->setText(value);
     }
+};
+
+class TrayController : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit TrayController(QWindow *window, QObject *parent = nullptr)
+        : QObject(parent)
+        , m_window(window)
+        , m_trayIcon(QIcon::fromTheme(QStringLiteral("org.kwarden.KWarden")), this)
+    {
+        if (!m_window || !QSystemTrayIcon::isSystemTrayAvailable()) {
+            return;
+        }
+
+        m_window->installEventFilter(this);
+        QApplication::setQuitOnLastWindowClosed(false);
+
+        QAction *showAction = m_menu.addAction(i18n("Show KWarden"));
+        QAction *quitAction = m_menu.addAction(i18n("Quit"));
+
+        connect(showAction, &QAction::triggered, this, &TrayController::showWindow);
+        connect(quitAction, &QAction::triggered, this, [this]() {
+            m_quitting = true;
+            QCoreApplication::exit(0);
+        });
+        connect(&m_trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                showWindow();
+            }
+        });
+
+        m_trayIcon.setToolTip(i18n("KWarden"));
+        m_trayIcon.setContextMenu(&m_menu);
+        m_trayIcon.show();
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == m_window && event->type() == QEvent::Close && !m_quitting && m_trayIcon.isVisible()) {
+            static_cast<QCloseEvent *>(event)->ignore();
+            m_window->hide();
+            return true;
+        }
+
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    void showWindow()
+    {
+        if (!m_window) {
+            return;
+        }
+
+        m_window->show();
+        m_window->raise();
+        m_window->requestActivate();
+    }
+
+    QWindow *m_window = nullptr;
+    QSystemTrayIcon m_trayIcon;
+    QMenu m_menu;
+    bool m_quitting = false;
 };
 
 class BwStrategy : public QObject
@@ -990,7 +1064,7 @@ int main(int argc, char **argv)
 {
     QGuiApplication::setDesktopFileName(QStringLiteral("org.kwarden.KWarden"));
 
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("kwarden"));
     QCoreApplication::setApplicationName(QStringLiteral("kwarden"));
 
@@ -1013,6 +1087,8 @@ int main(int argc, char **argv)
     if (engine.rootObjects().isEmpty()) {
         return 1;
     }
+
+    TrayController trayController(qobject_cast<QWindow *>(engine.rootObjects().constFirst()), &app);
 
     if (const int quitDelay = quitAfterMs(argc, argv); quitDelay > 0) {
         QTimer::singleShot(quitDelay, &app, []() {
