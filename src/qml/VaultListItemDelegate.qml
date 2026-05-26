@@ -10,6 +10,8 @@ QQC2.ItemDelegate {
 
     property bool isCurrent: false
 
+    signal usePasswordAsPinRequested(var item)
+
     function iconForType(type) {
         switch (type) {
         case 1: return "internet-services-symbolic"
@@ -45,6 +47,24 @@ QQC2.ItemDelegate {
     rightPadding: Kirigami.Units.largeSpacing
     highlighted: isCurrent
     hoverEnabled: true
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: function(eventPoint) {
+            contextMenu.popup(eventPoint.position.x, eventPoint.position.y)
+        }
+    }
+
+    QQC2.Menu {
+        id: contextMenu
+
+        QQC2.MenuItem {
+            text: i18n("Use Item’s Password as Unlock PIN")
+            icon.name: "lock-symbolic"
+            enabled: root.item && root.item.id && root.item.login && root.item.login.password
+            onTriggered: root.usePasswordAsPinRequested(root.item)
+        }
+    }
 
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing

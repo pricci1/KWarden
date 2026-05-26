@@ -15,6 +15,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QRandomGenerator>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTimer>
@@ -434,6 +435,7 @@ class BwCliProvider : public QObject
     Q_PROPERTY(QString userEmail READ userEmail NOTIFY userEmailChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool pinSet READ pinSet NOTIFY pinSetChanged)
+    Q_PROPERTY(QString pinSourceItemId READ pinSourceItemId NOTIFY pinSourceItemIdChanged)
 
 public:
     explicit BwCliProvider(QObject *parent = nullptr)
@@ -445,6 +447,8 @@ public:
         } else {
             m_backend = std::make_unique<DirectBwStrategy>(this);
         }
+
+        m_pinSourceItemId = QSettings().value(QStringLiteral("pin/sourceItemId")).toString();
     }
 
     QVariantList items() const
@@ -475,6 +479,11 @@ public:
     bool pinSet() const
     {
         return !m_pinSalt.isEmpty() && !m_wrappedSession.isEmpty();
+    }
+
+    QString pinSourceItemId() const
+    {
+        return m_pinSourceItemId;
     }
 
     Q_INVOKABLE void refresh()
@@ -555,8 +564,8 @@ public:
             setStatusText(i18n("Vault unlocked for this KWarden session"));
             if (pinSet()) {
                 clearPinState();
-                setStatusText(i18n("Vault unlocked. Set a new PIN if you want PIN lock for this session."));
             }
+            m_applySavedPinAfterLoad = !m_pinSourceItemId.isEmpty();
             loadItems();
         });
     }
@@ -593,27 +602,41 @@ public:
 
     Q_INVOKABLE void setPin(const QString &pin)
     {
-        if (pin.size() < 4) {
-            setStatusText(i18n("PIN must be at least 4 characters"));
+        if (setPinFromPassword(pin, i18n("PIN enabled until KWarden quits"))) {
+            clearPinSourceItemId();
+        }
+    }
+
+    Q_INVOKABLE void useItemPasswordAsPin(const QString &itemId)
+    {
+        if (itemId.isEmpty()) {
+            setStatusText(i18n("Selected item has no id"));
             return;
         }
 
-        if (m_session.isEmpty() || m_state != QStringLiteral("unlocked")) {
-            setStatusText(i18n("Unlock with your master password before setting a PIN"));
+        const QVariantMap item = itemById(itemId);
+        if (item.isEmpty()) {
+            setStatusText(i18n("Selected item was not found"));
             return;
         }
 
-        m_pinSalt = randomBytes(16);
-        m_pinNonce = randomBytes(16);
-        m_invalidPinAttempts = 0;
-        wrapSession(pin, m_session.toUtf8());
-        Q_EMIT pinSetChanged();
-        setStatusText(i18n("PIN enabled until KWarden quits"));
+        const QString password = loginPassword(item);
+        if (password.isEmpty()) {
+            setStatusText(i18n("Selected item has no password"));
+            return;
+        }
+
+        if (!setPinFromPassword(password, i18n("Using %1’s password as the unlock PIN", item.value(QStringLiteral("name")).toString()))) {
+            return;
+        }
+
+        setPinSourceItemId(itemId);
     }
 
     Q_INVOKABLE void clearPin()
     {
         clearPinState();
+        clearPinSourceItemId();
         setStatusText(i18n("PIN unlock disabled"));
     }
 
@@ -649,6 +672,7 @@ Q_SIGNALS:
     void userEmailChanged();
     void busyChanged();
     void pinSetChanged();
+    void pinSourceItemIdChanged();
 
 private:
     static constexpr int PinKdfIterations = 120000;
@@ -677,6 +701,10 @@ private:
             setItems(items);
             setState(QStringLiteral("unlocked"));
             setStatusText(i18np("Loaded %1 vault item", "Loaded %1 vault items", items.size()));
+            if (m_applySavedPinAfterLoad) {
+                m_applySavedPinAfterLoad = false;
+                applySavedPinSource();
+            }
             setBusy(false);
         });
     }
@@ -709,6 +737,86 @@ private:
         if (hadPin) {
             Q_EMIT pinSetChanged();
         }
+    }
+
+    void setPinSourceItemId(const QString &itemId)
+    {
+        if (m_pinSourceItemId == itemId) {
+            return;
+        }
+
+        m_pinSourceItemId = itemId;
+        QSettings().setValue(QStringLiteral("pin/sourceItemId"), itemId);
+        Q_EMIT pinSourceItemIdChanged();
+    }
+
+    void clearPinSourceItemId()
+    {
+        if (m_pinSourceItemId.isEmpty()) {
+            return;
+        }
+
+        m_pinSourceItemId.clear();
+        QSettings().remove(QStringLiteral("pin/sourceItemId"));
+        Q_EMIT pinSourceItemIdChanged();
+    }
+
+    bool setPinFromPassword(const QString &pin, const QString &successMessage)
+    {
+        if (pin.size() < 4) {
+            setStatusText(i18n("PIN must be at least 4 characters"));
+            return false;
+        }
+
+        if (m_session.isEmpty() || m_state != QStringLiteral("unlocked")) {
+            setStatusText(i18n("Unlock with your master password before setting a PIN"));
+            return false;
+        }
+
+        m_pinSalt = randomBytes(16);
+        m_pinNonce = randomBytes(16);
+        m_invalidPinAttempts = 0;
+        wrapSession(pin, m_session.toUtf8());
+        Q_EMIT pinSetChanged();
+        setStatusText(successMessage);
+        return true;
+    }
+
+    static QString loginPassword(const QVariantMap &item)
+    {
+        return item.value(QStringLiteral("login")).toMap().value(QStringLiteral("password")).toString();
+    }
+
+    QVariantMap itemById(const QString &itemId) const
+    {
+        for (const QVariant &itemVariant : m_items) {
+            const QVariantMap item = itemVariant.toMap();
+            if (item.value(QStringLiteral("id")).toString() == itemId) {
+                return item;
+            }
+        }
+        return {};
+    }
+
+    void applySavedPinSource()
+    {
+        if (m_pinSourceItemId.isEmpty()) {
+            return;
+        }
+
+        const QVariantMap item = itemById(m_pinSourceItemId);
+        if (item.isEmpty()) {
+            setStatusText(i18n("Saved PIN item was not found. Choose another item to restore automatic PIN setup."));
+            return;
+        }
+
+        const QString password = loginPassword(item);
+        if (password.isEmpty()) {
+            setStatusText(i18n("Saved PIN item has no password. Choose another item to restore automatic PIN setup."));
+            return;
+        }
+
+        setPinFromPassword(password, i18n("PIN restored from saved vault item"));
     }
 
     static QByteArray randomBytes(qsizetype size)
@@ -850,12 +958,14 @@ private:
     QString m_statusText = i18n("Checking Bitwarden CLI status…");
     QString m_userEmail;
     QString m_session;
+    QString m_pinSourceItemId;
     QByteArray m_pinSalt;
     QByteArray m_pinNonce;
     QByteArray m_wrappedSession;
     QByteArray m_pinVerifier;
     int m_invalidPinAttempts = 0;
     bool m_busy = false;
+    bool m_applySavedPinAfterLoad = false;
 };
 
 namespace
@@ -881,6 +991,8 @@ int main(int argc, char **argv)
     QGuiApplication::setDesktopFileName(QStringLiteral("org.kwarden.KWarden"));
 
     QGuiApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("kwarden"));
+    QCoreApplication::setApplicationName(QStringLiteral("kwarden"));
 
     KLocalizedString::setApplicationDomain("kwarden");
     KAboutData about(QStringLiteral("kwarden"),

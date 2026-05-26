@@ -138,10 +138,10 @@ Kirigami.ApplicationWindow {
                 displayHint: Kirigami.DisplayHint.KeepVisible
             },
             Kirigami.Action {
-                text: vaultProvider.pinSet ? i18n("Clear PIN") : i18n("Set PIN")
-                icon.name: vaultProvider.pinSet ? "edit-clear-symbolic" : "lock-symbolic"
+                text: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? i18n("Clear PIN") : i18n("Set PIN")
+                icon.name: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? "edit-clear-symbolic" : "lock-symbolic"
                 enabled: !vaultProvider.busy && vaultProvider.state === "unlocked"
-                onTriggered: vaultProvider.pinSet ? vaultProvider.clearPin() : setPinDialog.open()
+                onTriggered: (vaultProvider.pinSet || vaultProvider.pinSourceItemId.length > 0) ? vaultProvider.clearPin() : setPinDialog.open()
                 displayHint: Kirigami.DisplayHint.KeepVisible
             },
             Kirigami.Action {
@@ -220,6 +220,11 @@ Kirigami.ApplicationWindow {
                                 item: modelData
                                 isCurrent: ListView.isCurrentItem
                                 onClicked: root.selectedIndex = index
+                                onUsePasswordAsPinRequested: function(item) {
+                                    root.selectedIndex = index
+                                    root.actionStatusText = ""
+                                    vaultProvider.useItemPasswordAsPin(item.id)
+                                }
                             }
 
                             Kirigami.PlaceholderMessage {

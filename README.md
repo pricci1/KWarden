@@ -26,10 +26,10 @@ The `serve` backend starts `bw serve` bound to `localhost` on a random local por
 - The Bitwarden master password is sent to `bw unlock --raw` through stdin, not as a command-line argument.
 - The returned `BW_SESSION` value is kept only in KWarden process memory.
 - When `KWARDEN_BW_BACKEND=serve` is enabled, KWarden also keeps the managed `bw serve` process local to the app lifetime and binds it only to `localhost`.
-- Optional PIN unlock is ephemeral. It wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits.
+- Optional PIN unlock wraps the current `BW_SESSION` in memory only and is cleared when KWarden quits. KWarden can persist the id of a selected vault item and, after a future master-password unlock, use that item’s password to recreate the in-memory PIN wrapper automatically.
 - When PIN unlock is enabled, Lock is a KWarden-local soft lock: it clears loaded items and the active session, but keeps the in-memory PIN-wrapped session so the PIN can unlock again. Without PIN unlock, Lock runs `bw lock`.
-- KWarden does not write the master password, PIN, or session key to KDE Wallet, settings, logs, or disk.
-- Quitting the app drops KWarden's in-memory session key and any PIN-wrapped session. Persistent PIN unlock is intentionally not implemented.
+- KWarden does not write the master password, PIN/password value, or session key to KDE Wallet, settings, logs, or disk. Only the configured PIN source item id is stored in the app’s settings.
+- Quitting the app drops KWarden's in-memory session key and any PIN-wrapped session.
 
 ## Features
 
@@ -37,7 +37,7 @@ The `serve` backend starts `bw serve` bound to `localhost` on a random local por
 - Searchable vault item list
 - Detail pane for username, password, TOTP, custom fields, and notes
 - Clipboard copy buttons for secret values
-- Refresh, unlock, lock, and ephemeral PIN controls for `bw` vault state
+- Refresh, unlock, lock, and PIN controls for `bw` vault state
 - Keyboard shortcuts:
   - `Ctrl+U`: copy username
   - `Ctrl+P`: copy password
