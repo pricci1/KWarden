@@ -15,6 +15,10 @@ KWarden is a KDE-native Kirigami/QML frontend for Bitwarden's official `bw` CLI.
   ```sh
   distrobox enter kde-dev -- bash -lc 'QT_QPA_PLATFORM=offscreen /var/home/otto/Projects/kwarden/build/bin/kwarden --quit-after-ms 250'
   ```
+- Run tests:
+  ```sh
+  distrobox enter kde-dev -- bash -lc 'ctest --test-dir /var/home/otto/Projects/kwarden/build --output-on-failure'
+  ```
 
 ## Coding guidance
 
@@ -22,6 +26,7 @@ KWarden is a KDE-native Kirigami/QML frontend for Bitwarden's official `bw` CLI.
 - Keep C++ small and focused on application bootstrap, platform integration, and future provider/backend code.
 - Mock data should continue to resemble official Bitwarden CLI JSON shapes (`object: "list"`, `object: "item"`, `login`, `fields`, etc.).
 - TOTP may be visually grouped with spaces, but clipboard copies should remove spaces.
+- Add or update focused unit tests for non-trivial C++ logic such as parsing, cryptography, or time-based behavior.
 - Prefer small, focused changes and verify with the narrowest build/smoke check that gives confidence.
 - When appropiate, update the README. But mind we don't want it to become too verbose.
  
