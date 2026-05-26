@@ -278,6 +278,22 @@ Kirigami.ApplicationWindow {
                             root.moveItemSelection(1)
                             event.accepted = true
                         }
+                        Keys.onPressed: function(event) {
+                            if (!(event.modifiers & Qt.ControlModifier)) {
+                                return
+                            }
+
+                            if (event.key === Qt.Key_U) {
+                                root.copyField("username")
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_P) {
+                                root.copyField("password")
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_T) {
+                                root.copyField("totp")
+                                event.accepted = true
+                            }
+                        }
                         focusSequence: "Ctrl+F"
                     }
 
