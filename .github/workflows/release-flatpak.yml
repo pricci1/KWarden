@@ -43,11 +43,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder ostree
           flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --install-deps-only flatpak-build-dir cl.tri.kwarden.yml
 
       - name: Build Flatpak repo
         if: steps.release_tag.outputs.valid == 'true'
         run: |
           flatpak-builder \
+            --user \
+            --install-deps-from=flathub \
             --force-clean \
             --repo=flatpak-repo \
             --default-branch=stable \
